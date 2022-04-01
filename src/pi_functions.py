@@ -61,7 +61,7 @@ class PILoss(nn.Module):
     field is the field of the dyanamical system
     annealing is the annealing strategy used to weight data driven (dd) loss
     """
-    def __init__(self, dt, field, annealing):
+    def __init__(self, dt, field, annealing = None):
         super(PILoss, self).__init__()
         self.dt = dt
         self.field = field
@@ -81,8 +81,10 @@ class PILoss(nn.Module):
         # Compute data driven loss
         dd_loss = nn.MSELoss()(next_state,labels)
         
-        # Compute total loss
-        loss = pi_loss + ic_loss + self.annealing[num_epoch]*dd_loss
+        # Compute total physical informed loss
+        loss = pi_loss + ic_loss
+        if self.annealing is not None:
+            loss += self.annealing[num_epoch]*dd_loss
             
         return loss
 
