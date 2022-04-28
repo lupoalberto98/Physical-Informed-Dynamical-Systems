@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 import torch
 import torch.nn as nn
+import pytorch_lightning as pl
 from VAE_functions import Sampler
+import numpy as np
 
 class LSTM(nn.Module):  
     def __init__(self, input_size, hidden_units, layers_num, drop_p=0):
@@ -172,7 +174,51 @@ class VarFFAE(nn.Module):
         
        
         
+#def VarAE_LSTM(nn.Module):
+#    def __init__():
+        
+class ESN(object):
+    "Implementation of a Echo State Network"
+    def __init__(self, params):
+        self.in_dim = params["input_dimension"]
+        self.h_dim = params["hidden_dimension"]
+        self.out_dim = params["out_dimension"]
+        self.beta = params["beta"]
+        self.a = params["a"]
+        self.b = params["b"]
+        
+        # Initialize W_in and W_r and hidden state
+        self.W_in = np.random.rand(self.h_dim, self.in_dim)*2*self.a - np.ones((self.h_dim, self.in_dim))*self.a
+        self.W_r = np.random.rand(self.h_dim, self.h_dim)*2*self.b - np.ones((self.h_dim, self.h_dim))*self.b
+        self.h = [np.zeros((self.h_dim,))]
+        self.P = np.zeros((self.out_dim, self.h_dim))
         
         
+    def optimize(self, x):
+        # Compute hidden state for training vector, shape [len_seq, n]
+        dim_x = x.shape
+        for t in range(dim_x[0]):
+            self.h.append(np.tanh(np.dot(self.W_in, x[t]) + np.dot(self.W_r, self.h[-1])))
+        for i in range(self.out_dim):
+            for j in range(self.h_dim):
+                num = 0
+                den = 0
+                for t in range(dim_x[0]-1):
+                    num += x[t+1][i]*self.h[t+1][j]
+                    den += self.h[t+1][j]**2
+                den += self.beta
+                self.P[i][j] = num/den
+                
+    def forward(self, x):
+        dim_x = x.shape
+        # Reinitializate hidden state
+        self.h = [np.zeros((self.h_dim,))]
+        for t in range(dim_x[0]):
+            self.h.append(np.tanh(np.dot(self.W_in, x[t]) + np.dot(self.W_r, self.h[-1])))
         
+        y = [x[0]]
+        for t in range(dim_x[0]-1):
+            y.append(np.dot(self.P,self.h[t+1]))
+        
+        return y
         
