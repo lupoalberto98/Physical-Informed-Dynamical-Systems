@@ -172,7 +172,39 @@ class VarFFAE(nn.Module):
         
         return x
         
-       
+
+class Transformer(nn.Module):
+    def __init__(self, params):
+        # Initialize parent class
+        super().__init__()
+        
+        # Retrieve data from params
+        self.d_model = params["d_model"]
+        self.nhead = params["nhead"]
+        self.num_encoder_layers = params["num_encoder_layers"]
+        self.num_decoder_layers = params["num_decoder_layers"]
+        self.dim_feedforward = params["dim_feedforward"]
+        self.dropout = params["dropout"]
+        self.activation = params["activation"]
+        
+        # Define transformer
+        self.tf = nn.Transformer(self.d_model, self.nhead, self.num_encoder_layers,self.num_decoder_layers,
+                                 self.dim_feedforward, self.dropout, self.activation)
+        
+        print("Network initialized")
+        
+    def get_tgt_mask(self, size):
+        # Generates a squeare matrix where the each row allows one word more to be seen
+        mask = torch.tril(torch.ones(size, size) == 1) # Lower triangular matrix
+        mask = mask.float()
+        mask = mask.masked_fill(mask == 0, float('-inf')) # Convert zeros to -inf
+        mask = mask.masked_fill(mask == 1, float(0.0)) # Convert ones to 0
+        return mask
+    
+    
+    
+        
+        
         
 #def VarAE_LSTM(nn.Module):
 #    def __init__():
@@ -184,12 +216,17 @@ class ESN(object):
         self.h_dim = params["hidden_dimension"]
         self.out_dim = params["out_dimension"]
         self.beta = params["beta"]
-        self.a = params["a"]
-        self.b = params["b"]
+        self.spectral_radius = params["spectral_radius"]
         
-        # Initialize W_in and W_r and hidden state
-        self.W_in = np.random.rand(self.h_dim, self.in_dim)*2*self.a - np.ones((self.h_dim, self.in_dim))*self.a
-        self.W_r = np.random.rand(self.h_dim, self.h_dim)*2*self.b - np.ones((self.h_dim, self.h_dim))*self.b
+        
+        # Initialize W_in and W_r 
+        self.W_in = np.random.rand(self.h_dim, self.in_dim)*2 - 1.0
+        self.W_r = np.random.rand(self.h_dim, self.h_dim)*2 - 1.0
+        
+        # Rescale to match spectral radius
+        radius = np.max(np.abs(np.linalg.eigvals(self.W_r)))
+        self.W_r = self.W_r * self.spectral_radius / radius
+        
         self.h = [np.zeros((self.h_dim,))]
         self.P = np.zeros((self.out_dim, self.h_dim))
         

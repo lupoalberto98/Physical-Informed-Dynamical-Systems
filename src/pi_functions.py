@@ -61,30 +61,34 @@ class PILoss(nn.Module):
     field is the field of the dyanamical system
     annealing is the annealing strategy used to weight data driven (dd) loss
     """
-    def __init__(self, dt, field, annealing = None):
+    def __init__(self, dt, field, dd_loss_fn, dd_mask, pi_mask):
         super(PILoss, self).__init__()
         self.dt = dt
         self.field = field
-        self.annealing = annealing
+        self.dd_loss_fn = dd_loss_fn
+        self.dd_mask = dd_mask # Wights for data driven loss
+        self.pi_mask = pi_mask # Weights for physical informed loss
 
     def forward(self, state, next_state, labels, num_epoch):
         # Compute derivative term
-        der_term = self.field(state)
-        # Compute rhs
-        rhs = state + self.dt*der_term
+        der = self.field(state)
+        # Compute central derivative
+        rhs_der = next_state - state
+        
         # Compute loss of the derivative function
-        pi_loss = torch.mean((next_state-rhs)**2)
+        dyn_loss = torch.mean((rhs_der-der*self.dt)**2)
         
         # Compute initial condition loss
-        ic_loss = 0 #torch.mean((next_state[:,1,:]-state[:,0,:])**2)
+        ic_loss = torch.mean((next_state[:,0,:]-state[:,1,:])**2)
     
         # Compute data driven loss
-        dd_loss = nn.MSELoss()(next_state,labels)
+        dd_loss = self.dd_loss_fn(next_state,labels)
         
         # Compute total physical informed loss
-        loss = pi_loss + ic_loss
-        if self.annealing is not None:
-            loss += self.annealing[num_epoch]*dd_loss
+        pi_loss = dyn_loss + ic_loss
+        
+        # Compute total loss
+        loss = pi_loss*self.pi_mask[num_epoch] + dd_loss*self.dd_mask[num_epoch]
             
         return loss
 
