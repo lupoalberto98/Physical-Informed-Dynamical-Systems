@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 
 ### Train epoch function
-def pi_train_epoch(net, device, dataloader, loss_fn, optimizer, epoch_num, cv_strategy = None):
+def pi_train_epoch(net, device, dataloader, loss_fn, optimizer, epoch_num):
     """
     Train an epoch of data (sweep through dataloader)
     -----------
@@ -28,7 +28,7 @@ def pi_train_epoch(net, device, dataloader, loss_fn, optimizer, epoch_num, cv_st
     train_epoch_losses = []
       
     # Loop over other steps
-    iteration = 0
+
     for batch_sample in dataloader:
 
         ### Move samples to the proper device
@@ -37,16 +37,6 @@ def pi_train_epoch(net, device, dataloader, loss_fn, optimizer, epoch_num, cv_st
         ### Prepare network input and labels and first net_out for curriculum learning
         state  = batch_sample[:, :-1, :]
         labels = batch_sample[:, 1:, :]
-        
-        # Prepare input state with teacher forcing
-        if cv_strategy is not None and iteration>0:
-            # Generate random numbers of length sequence length
-            shape = state.shape
-            forget = torch.rand(shape[1]).unsqueeze(1).unsqueeze(0)
-            forget[forget>cv_strategy[epoch_num]] = 1.
-            forget[forget<cv_strategy[epoch_num]] = 0.
-            state = state*(1.-forget) + next_state*forget
-            state = state.detach()
 
         ### Forward pass
         # Clear previous recorded gradients
@@ -68,12 +58,12 @@ def pi_train_epoch(net, device, dataloader, loss_fn, optimizer, epoch_num, cv_st
         # Save batch loss
         train_epoch_losses.append(loss.detach().cpu().numpy())
     
-        iteration = iteration +1
+        
         
     return np.mean(train_epoch_losses)
 
 ### Validation epoch function
-def pi_val_epoch(net,  device, dataloader, loss_fn, epoch_num,  cv_strategy = None):
+def pi_val_epoch(net,  device, dataloader, loss_fn, epoch_num):
     """
     Validate an epoch of data
     -----------
@@ -92,7 +82,7 @@ def pi_val_epoch(net,  device, dataloader, loss_fn, epoch_num,  cv_strategy = No
     # List to save evaluation losses
     val_epoch_loss = []
     
-    iteration = 0
+  
     with torch.no_grad():
         for batch_sample in dataloader:
                 
@@ -102,18 +92,7 @@ def pi_val_epoch(net,  device, dataloader, loss_fn, epoch_num,  cv_strategy = No
             ### Prepare network input and labels
             state  = batch_sample[:, :-1, :]
             labels = batch_sample[:, 1:, :]
-            
-            # Prepare input state with teacher forcing
-            if cv_strategy is not None and iteration>0:
-                # Generate random numbers of length sequence length
-                shape = state.shape
-                forget = torch.rand(shape[1]).unsqueeze(1).unsqueeze(0)
-                forget[forget>cv_strategy[epoch_num]] = 1.
-                forget[forget<cv_strategy[epoch_num]] = 0.
-                state = state*(1.-forget) + next_state*forget
-                state = state.detach()
-         
-
+      
             # Forward pass
             next_state, _ = net(state) 
 
@@ -122,11 +101,11 @@ def pi_val_epoch(net,  device, dataloader, loss_fn, epoch_num,  cv_strategy = No
             
             # Compute batch_loss
             val_epoch_loss.append(loss.detach().cpu().numpy())
-        iteration = iteration +1
+       
     return np.mean(val_epoch_loss)
 
 ### Training epochs
-def pi_train(net, device, train_dataloader, val_dataloader, loss_fn, optimizer, max_num_epochs, early_stopping = False, cv_strategy = None):
+def pi_train(net, device, train_dataloader, val_dataloader, loss_fn, optimizer, max_num_epochs, early_stopping = False):
     """
     Train an epoch
     ___________
@@ -146,10 +125,10 @@ def pi_train(net, device, train_dataloader, val_dataloader, loss_fn, optimizer, 
     for epoch_num in pbar:
 
         # Train epoch
-        mean_train_loss = pi_train_epoch(net, device, train_dataloader, loss_fn, optimizer, epoch_num, cv_strategy)
+        mean_train_loss = pi_train_epoch(net, device, train_dataloader, loss_fn, optimizer, epoch_num)
 
         # Validate epoch
-        mean_val_loss = pi_val_epoch(net, device, val_dataloader, loss_fn, epoch_num, cv_strategy)
+        mean_val_loss = pi_val_epoch(net, device, val_dataloader, loss_fn, epoch_num)
 
         # Append losses and accuracy
         train_loss_log.append(mean_train_loss)
