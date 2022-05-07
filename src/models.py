@@ -5,6 +5,7 @@ import pytorch_lightning as pl
 import torch.optim as optim
 from VAE_functions import Sampler
 import numpy as np
+import math
 
 
 class LSTM(pl.LightningModule):  
@@ -57,7 +58,20 @@ class LSTM(pl.LightningModule):
             next_state, _ = self.forward(state)
             
         # Compute loss
-        train_loss = self.loss_fn(state, next_state, labels, self.current_epoch)
+        if self.loss_fn.__class__.__name__ == "EuDLoss":
+            train_loss = self.loss_fn(state, next_state, labels, self.current_epoch)
+        elif self.loss_fn.__class__.__name__ == "CeDLoss":
+            # Trim batches
+            state = state[:,:-1,:]
+            next_state = next_state[:,:-1,:]
+            labels = labels[:,1:,:]
+            # Forward again
+            next_next_state, _ = self.forward(next_state)
+            # Compute loss
+            train_loss = self.loss_fn(state, next_state, next_next_state, labels, self.current_epoch)
+        else:
+            raise NameError(self.loss_fn.__class__.__name__)
+            
         # Logging to TensorBoard by default
         self.log("train_loss", train_loss, prog_bar=True)
         return train_loss
@@ -80,7 +94,20 @@ class LSTM(pl.LightningModule):
             # Forward
             next_state, _ = self.forward(state)
         # Compute loss
-        val_loss = self.loss_fn(state, next_state, labels, self.current_epoch)
+        if self.loss_fn.__class__.__name__ == "EuDLoss":
+            val_loss = self.loss_fn(state, next_state, labels, self.current_epoch)
+        elif self.loss_fn.__class__.__name__ == "CeDLoss":
+            # Trim batches
+            state = state[:,:-1,:]
+            next_state = next_state[:,:-1,:]
+            labels = labels[:,1:,:]
+            # Forward again
+            next_next_state, _ = self.forward(next_state)
+            # Compute loss
+            val_loss = self.loss_fn(state, next_state, next_next_state, labels, self.current_epoch)
+        else:
+            raise NameError(self.loss_fn.__class__.__name__)
+            
         # Logging to TensorBoard by default
         self.log("val_loss", val_loss, logger=True, on_epoch=True, prog_bar=True)
         self.log("epoch_num", self.current_epoch,prog_bar=True)
@@ -91,6 +118,35 @@ class LSTM(pl.LightningModule):
         optimizer = optim.Adam(self.parameters(), lr = self.lr)
         return optimizer
         
+
+class PositionalEncoding(nn.Module):
+    def __init__(self, dim_model, dropout_p, max_len):
+        super().__init__()
+        # Modified version from: https://pytorch.org/tutorials/beginner/transformer_tutorial.html
+        # max_len determines how far the position can have an effect on a token (window)
+        
+        # Info
+        self.dropout = nn.Dropout(dropout_p)
+        
+        # Encoding - From formula
+        pos_encoding = torch.zeros(max_len, dim_model)
+        positions_list = torch.arange(0, max_len, dtype=torch.float).view(-1, 1) # 0, 1, 2, 3, 4, 5
+        division_term = torch.exp(torch.arange(0, dim_model, 1).float() * (-math.log(10000.0)) / dim_model) # 1000^(2i/dim_model)
+        
+        # PE(pos, 2i) = sin(pos/1000^(2i/dim_model))
+        pos_encoding[:, 0::2] = torch.sin(positions_list * division_term)[:,0::2]
+        
+        # PE(pos, 2i + 1) = cos(pos/1000^(2i/dim_model))
+        pos_encoding[:, 1::2] = torch.cos(positions_list * division_term)[:,1::2]
+        
+        # Saving buffer (same as parameter without gradients needed)
+        pos_encoding = pos_encoding.unsqueeze(0)
+        self.register_buffer("pos_encoding",pos_encoding)
+        
+    def forward(self, token_embedding):
+        # Residual connection + pos encoding
+        return self.dropout(token_embedding + self.pos_encoding[:,:token_embedding.shape[1], :])
+
 
         
 class Transformer(pl.LightningModule):
@@ -112,6 +168,11 @@ class Transformer(pl.LightningModule):
         self.tgt_mask = None
         self.apply_src_mask = params["apply_src_mask"]
         self.apply_tgt_mask = params["apply_tgt_mask"]
+        
+        # Positional encoder
+        self.positional_encoder = PositionalEncoding(
+            dim_model=self.d_model, dropout_p=self.dropout, max_len=5000
+        )
         # Transoformer
         self.transformer = nn.Transformer(d_model=self.d_model, nhead=self.nhead, num_encoder_layers=self.num_encoder_layers, 
                                           num_decoder_layers=self.num_decoder_layers, dim_feedforward=self.dim_feedforward, 
@@ -129,7 +190,10 @@ class Transformer(pl.LightningModule):
         return mask
     
     def forward(self, src, tgt, src_mask=None, tgt_mask=None):
-        # Tranformer step
+        # Positional encoding
+        src = self.positional_encoder(src)
+        tgt = self.positional_encoder(tgt)
+        # Transformer step
         out = self.transformer(src, tgt, src_mask, tgt_mask)
         # Output layer
         out = self.output(out)
