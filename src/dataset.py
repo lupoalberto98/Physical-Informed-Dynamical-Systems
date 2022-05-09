@@ -37,6 +37,7 @@ class DynSysDataset(Dataset):
         
         # Divide in into tensor of size = (num_sequences, len_seq, feature_dim)
         self.data = np.reshape(self.dataset[:self.num_sequences*seq_len,:], (self.num_sequences, seq_len, len(state0)))
+        self.data = torch.tensor(self.data, dtype=torch.float32, requires_grad = True)
         
     def __len__(self):
         return len(self.data)
@@ -46,4 +47,4 @@ class DynSysDataset(Dataset):
         if self.transform is not None:
             self.data = self.transform(self.data)
             
-        return self.data[idx]
+        return self.data[idx,...]

@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import pytorch_lightning as pl
 import torch.optim as optim
-from VAE_functions import Sampler
+from utils import Sampler, nKLDivLoss
 import numpy as np
 import math
 
@@ -19,7 +19,8 @@ class LSTM(pl.LightningModule):
         self.drop_p = params["drop_p"]
         self.loss_fn = params["loss_fn"]
         self.lr = params["lr"]
-        self.curriculum_learning, self.cl_steps = params["curriculum_learning"]
+        self.feedforward_steps = params["feedforward_steps"]
+        self.curriculum_learning = params["curriculum_learning"]
         
         # Define recurrent layers
         self.rnn = nn.LSTM(input_size=self.input_size, 
@@ -41,10 +42,18 @@ class LSTM(pl.LightningModule):
     
     def training_step(self, batch, batch_idx):
         ### Prepare network input and labels and first net_out for curriculum learning
-        state  = batch[:, :-1, :]
-        labels = batch[:, 1:, :]
-        # Forward pass
-        next_state, _ = self.forward(state)
+        state  = batch[:, :-self.feedforward_steps, :]
+        labels = batch[:, self.feedforward_steps:, :]
+        
+        # Initialize loss
+        train_loss = 0
+        for step in range(self.feedforward_steps):
+            # Forward pass
+            next_state, _ = self.forward(state)
+            train_loss += self.loss_fn(state, next_state)
+            state = next_state.detach()
+            
+        """
         # Curriculum learning startegy
         if self.curriculum_learning is not None:
             shape = state.shape
@@ -56,10 +65,10 @@ class LSTM(pl.LightningModule):
             state = state.detach()
             # Forward
             next_state, _ = self.forward(state)
-            
+           
         # Compute loss
         if self.loss_fn.__class__.__name__ == "EuDLoss":
-            train_loss = self.loss_fn(state, next_state, labels, self.current_epoch)
+            train_loss = self.loss_fn(state, next_state)
         elif self.loss_fn.__class__.__name__ == "CeDLoss":
             # Trim batches
             state = state[:,:-1,:]
@@ -68,20 +77,28 @@ class LSTM(pl.LightningModule):
             # Forward again
             next_next_state, _ = self.forward(next_state)
             # Compute loss
-            train_loss = self.loss_fn(state, next_state, next_next_state, labels, self.current_epoch)
+            train_loss = self.loss_fn(state, next_state, next_next_state)
         else:
             raise NameError(self.loss_fn.__class__.__name__)
-            
+        """
+        
         # Logging to TensorBoard by default
         self.log("train_loss", train_loss, prog_bar=True)
         return train_loss
     
     def validation_step(self, batch, batch_idx):
         ### Prepare network input and labels and first net_out for curriculum learning
-        state  = batch[:, :-1, :]
-        labels = batch[:, 1:, :]
-        # Forward pass
-        next_state, _ = self.forward(state)
+        state  = batch[:, :-self.feedforward_steps, :]
+        labels = batch[:, self.feedforward_steps:, :]
+        
+        # Initialize loss
+        val_loss = 0
+        for step in range(self.feedforward_steps):
+            # Forward pass
+            next_state, _ = self.forward(state)
+            val_loss += self.loss_fn(state, next_state)
+            state = next_state.detach()
+        """
         # Curriculum learning startegy
         if self.curriculum_learning is not None:
             shape = state.shape
@@ -95,7 +112,7 @@ class LSTM(pl.LightningModule):
             next_state, _ = self.forward(state)
         # Compute loss
         if self.loss_fn.__class__.__name__ == "EuDLoss":
-            val_loss = self.loss_fn(state, next_state, labels, self.current_epoch)
+            val_loss = self.loss_fn(state, next_state)
         elif self.loss_fn.__class__.__name__ == "CeDLoss":
             # Trim batches
             state = state[:,:-1,:]
@@ -104,10 +121,10 @@ class LSTM(pl.LightningModule):
             # Forward again
             next_next_state, _ = self.forward(next_state)
             # Compute loss
-            val_loss = self.loss_fn(state, next_state, next_next_state, labels, self.current_epoch)
+            val_loss = self.loss_fn(state, next_state, next_next_state)
         else:
             raise NameError(self.loss_fn.__class__.__name__)
-            
+        """
         # Logging to TensorBoard by default
         self.log("val_loss", val_loss, logger=True, on_epoch=True, prog_bar=True)
         self.log("epoch_num", self.current_epoch,prog_bar=True)
@@ -238,7 +255,7 @@ class Transformer(pl.LightningModule):
         optimizer = optim.Adam(self.parameters(), lr = self.lr)
         return optimizer
     
-class FFNet(nn.Module):
+class FFNet(pl.LightningModule):
 
     def __init__(self, params):
         """
@@ -269,7 +286,7 @@ class FFNet(nn.Module):
         
         self.layers = nn.ModuleList(layers)
                           
-        print("Network initialized")
+        print("Feedforward network initialized")
                   
 
     def forward(self, x):
@@ -281,7 +298,7 @@ class FFNet(nn.Module):
         return x
 
 
-class VarFFEnc(nn.Module):
+class VarFFEnc(pl.LightningModule):
     """
     This class implement a general VARiational Feed Forward Encoder (VarFFEnc)
     """
@@ -322,7 +339,7 @@ class VarFFEnc(nn.Module):
             nn.Linear(16, self.encoded_space_dim)
         )
         
-        print("Network initialized")
+        print("Encoder initialized")
         
     def forward(self, x):
         # Feedforward part
@@ -341,7 +358,7 @@ class VarFFEnc(nn.Module):
         return mean, logvar
 
 
-class VarFFAE(nn.Module):
+class VarFFAE(pl.LightningModule):
     """
     Implementation a general feed forward auto encoder
     """
@@ -355,6 +372,8 @@ class VarFFAE(nn.Module):
         self.act = params["act"]
         self.drop_p = params["drop_p"]
         self.encoded_space_dim = params["encoded_space_dim"]
+        self.loss_fn = params["loss_fn"]
+        self.lr = params["lr"]
         
         ### Network architecture
         self.encoder = VarFFEnc(params)
@@ -370,19 +389,52 @@ class VarFFAE(nn.Module):
             self.act,
             FFNet(params)
         )
+        
+        print("Autoencoder Initialized")
+        
     def forward(self, x):
         # Encode data
-        mean, logvar = self.encoder(x)
+        mean, log_var = self.encoder(x)
         
         # Sample data
-        x = Sampler(mean, logvar)
+        x = Sampler()(mean, log_var)
         
         # Decode data
         x = self.decoder(x)
         
-        return x
+        return x, mean, log_var
         
-
+    def training_step(self, batch, batch_idx):
+        # Forward step
+        rec_batch, mean, log_var = self.forward(batch)
+        # Compute reconstruction loss
+        rec_loss = self.loss_fn(rec_batch, batch)
+        # KL Loss
+        kl_loss = nKLDivLoss()(mean, log_var)
+        # Total train loss
+        train_loss = rec_loss + kl_loss
+        # Logging to TensorBoard by default
+        self.log("train_loss", train_loss, prog_bar=True)
+        
+        return train_loss
+    
+    def validation_step(self, batch, batch_idx):
+        # Forward step
+        rec_batch, mean, log_var = self.forward(batch)
+        # Compute reconstruction loss
+        rec_loss = self.loss_fn(rec_batch, batch)
+        # KL Loss
+        kl_loss = nKLDivLoss()(mean, log_var)
+        # Total train loss
+        val_loss = rec_loss + kl_loss
+        # Logging to TensorBoard by default
+        self.log("val_loss", val_loss, prog_bar=True)
+        
+        return val_loss
+    
+    def configure_optimizers(self):
+        optimizer = optim.Adam(self.parameters(), lr = self.lr)
+        return optimizer
     
     
     

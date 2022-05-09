@@ -46,7 +46,7 @@ def plt_gen_trajectory(net_states, t_test, test_dataset, filename, prediction_st
     index = 0
     for ax in axs[0:,0]:
         ax.set_xlabel("t")
-        ax.plot(t_test[:prediction_steps], net_states[:, index], label="Predicted")
+        ax.plot(t_test[:prediction_steps], net_states[:prediction_steps, index], label="Predicted")
         ax.plot(t_test[:prediction_steps], test_dataset[:prediction_steps, index], label="Actual")
         ax.legend(loc = "upper right", fontsize = "x-small")
         index += 1
@@ -64,7 +64,7 @@ def plt_gen_trajectory(net_states, t_test, test_dataset, filename, prediction_st
     axbig.set_ylabel("y")
     axbig.set_zlabel("z")
     axbig.set_title("Predicted Lorenz attractor")
-    axbig.plot(net_states[:,0], net_states[:,1], net_states[:,2])
+    axbig.plot(net_states[:prediction_steps,0], net_states[:prediction_steps,1], net_states[:prediction_steps,2])
     axbig.legend()
 
 
