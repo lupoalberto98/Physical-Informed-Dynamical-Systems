@@ -130,3 +130,10 @@ dmypy.json
 
 # Pictures
 *.png
+
+# Folders
+/src/Informer
+/src/lightning_logs
+/src/tb_logs
+/src/old_functions
+/src/trained_models
