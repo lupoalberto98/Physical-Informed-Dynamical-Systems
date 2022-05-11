@@ -22,6 +22,9 @@ class LSTM(pl.LightningModule):
         self.feedforward_steps = params["feedforward_steps"]
         self.curriculum_learning = params["curriculum_learning"]
         
+        # Set output mode
+        self.return_rnn = True
+        
         # Define recurrent layers
         self.rnn = nn.LSTM(input_size=self.input_size, 
                            hidden_size=self.hidden_units,
@@ -38,7 +41,10 @@ class LSTM(pl.LightningModule):
         # Linear layer
         x = self.out(x)
         # Remember to return also the RNN state, you will need it to generate data
-        return x, rnn_state
+        if self.return_rnn:
+            return x, rnn_state
+        else:
+            return x
     
     def training_step(self, batch, batch_idx):
         ### Prepare network input and labels and first net_out for curriculum learning
@@ -135,6 +141,8 @@ class LSTM(pl.LightningModule):
         optimizer = optim.Adam(self.parameters(), lr = self.lr)
         return optimizer
         
+    def set_output(self, return_rnn):
+        self.return_rnn = return_rnn
 
 class PositionalEncoding(nn.Module):
     def __init__(self, dim_model, dropout_p, max_len):

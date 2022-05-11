@@ -43,6 +43,7 @@ class L63_field():
         self.rho=rho
         self.sigma=sigma
         self.beta=beta
+        self.dim = 3
         
     def __call__(self,state):
         field = torch.clone(state)
@@ -59,11 +60,13 @@ class EuDLoss(nn.Module):
     Args:
     dt is the time step
     field is the field of the dyanamical system
+    if time_included, time is carried as last element of input vector
     """
-    def __init__(self, dt, field):
+    def __init__(self, dt, field, include_time=False):
         super(EuDLoss, self).__init__()
         self.dt = dt
         self.field = field
+        self.include_time = include_time
   
 
     def forward(self, state, next_state):
@@ -72,7 +75,14 @@ class EuDLoss(nn.Module):
         # Compute derivative
         rhs_der = next_state - state
         # Compute loss of the derivative function
-        dyn_loss = torch.mean((rhs_der-der*self.dt)**2)       
+        if self.include_time:
+            # Compute time differences and expand
+            dt = next_state[:,:, -1] - state[:,:, -1]
+            dt = dt.unsqueeze(-1)
+            # Compute loss
+            dyn_loss = torch.mean((rhs_der[:,:,:self.field.dim]-der[:,:,:self.field.dim]*dt)**2)
+        else:
+            dyn_loss = torch.mean((rhs_der[:,:,:self.field.dim]-der[:,:,:self.field.dim]*self.dt)**2)       
         # Compute initial condition loss
         ic_loss = torch.mean((next_state[:,0,:]-state[:,1,:])**2)           
         # Compute total physical informed loss

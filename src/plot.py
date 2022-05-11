@@ -35,7 +35,7 @@ def gen_trajectory(net, test_dataset, prediction_steps = 1000):
 
 
 
-def plt_gen_trajectory(net_states, t_test, test_dataset, filename, prediction_steps=100):
+def plt_gen_trajectory(net_states, t_test, test_dataset, filename, prediction_steps=100, include_time=False):
     fig, axs = plt.subplots(figsize=(10,5), ncols=2, nrows=3)
     gs = axs[1, 1].get_gridspec()
     
@@ -46,8 +46,12 @@ def plt_gen_trajectory(net_states, t_test, test_dataset, filename, prediction_st
     index = 0
     for ax in axs[0:,0]:
         ax.set_xlabel("t")
-        ax.plot(t_test[:prediction_steps], net_states[:prediction_steps, index], label="Predicted")
-        ax.plot(t_test[:prediction_steps], test_dataset[:prediction_steps, index], label="Actual")
+        if include_time:
+            ax.plot(net_states[:prediction_steps, -1], net_states[:prediction_steps, index], label="Predicted")
+            ax.plot(test_dataset[:prediction_steps, -1], test_dataset[:prediction_steps, index], label="Actual")
+        else:
+            ax.plot(t_test[:prediction_steps], net_states[:prediction_steps, index], label="Predicted")
+            ax.plot(t_test[:prediction_steps], test_dataset[:prediction_steps, index], label="Actual")
         ax.legend(loc = "upper right", fontsize = "x-small")
         index += 1
 
