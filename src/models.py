@@ -56,7 +56,7 @@ class LSTM(pl.LightningModule):
         for step in range(self.feedforward_steps):
             # Forward pass
             next_state, _ = self.forward(state)
-            train_loss += self.loss_fn(state, next_state)
+            train_loss = self.loss_fn(state, next_state)
             state = next_state.detach()
             
         """
@@ -102,8 +102,9 @@ class LSTM(pl.LightningModule):
         for step in range(self.feedforward_steps):
             # Forward pass
             next_state, _ = self.forward(state)
-            val_loss += self.loss_fn(state, next_state)
+            val_loss = self.loss_fn(state, next_state)
             state = next_state.detach()
+       
         """
         # Curriculum learning startegy
         if self.curriculum_learning is not None:

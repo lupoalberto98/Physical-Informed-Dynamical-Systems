@@ -2,9 +2,9 @@ import numpy as np
 import torch
 import matplotlib.pyplot as plt
 
-def gen_trajectory(net, test_dataset, prediction_steps = 1000):
+def gen_trajectory(net, state0, prediction_steps = 1000):
     " Generate a trajectory of prediction_steps lenght starting from test_dataset[0]. Return np.array"
-    state = torch.tensor(test_dataset[0], dtype=torch.float).unsqueeze(0).unsqueeze(0)
+    state = torch.tensor(state0, dtype=torch.float).unsqueeze(0).unsqueeze(0)
     h0 = torch.zeros(net.layers_num, 1,net.hidden_units)
     c0 = torch.zeros(net.layers_num, 1, net.hidden_units)
     rnn_state0 = (h0, c0)
@@ -13,11 +13,7 @@ def gen_trajectory(net, test_dataset, prediction_steps = 1000):
 
     net_states = []
     net.eval()
-    
-    # Adjust length
-    if prediction_steps > len(test_dataset):
-        prediction_steps = len(test_dataset)
-
+   
     for i in range(prediction_steps):
         with torch.no_grad():
             net_states.append(state[-1].squeeze().numpy())
