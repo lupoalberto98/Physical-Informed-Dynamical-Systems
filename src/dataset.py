@@ -32,18 +32,19 @@ class DynSysDataset(Dataset):
         self.num_sequences = int(steps/seq_len)
         
         # Generate the dynamics and discard first entries
-        self.time = np.arange(0.0, (steps+discard)*dt, dt)
+        self.time = np.arange(0.0, (steps+discard)*self.dt, self.dt)
         self.dataset = odeint(self.f, self.state0, self.time)
         self.time = self.time[discard:]
         self.dataset = self.dataset[discard:]
         
         # Include also time dimension
         if self.include_time:
-            self.dataset = np.concatenate((self.dataset, np.expand_dims(self.time, -1)), axis=-1)
+            self.dataset = np.concatenate((self.dataset, np.expand_dims([self.dt]*steps, -1)), axis=-1)
         
         # Divide in into tensor of size = (num_sequences, len_seq, feature_dim)
         self.data = np.reshape(self.dataset[:self.num_sequences*seq_len,:], (self.num_sequences, seq_len, len(self.dataset[0,:])))
         self.data = torch.tensor(self.data, dtype=torch.float32, requires_grad = True)
+        
         
     def __len__(self):
         return len(self.data)

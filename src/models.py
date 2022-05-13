@@ -8,6 +8,7 @@ import numpy as np
 import math
 
 
+
 class LSTM(pl.LightningModule):  
     def __init__(self, params):
         # Call the parent init function 
@@ -56,7 +57,7 @@ class LSTM(pl.LightningModule):
         for step in range(self.feedforward_steps):
             # Forward pass
             next_state, _ = self.forward(state)
-            train_loss = self.loss_fn(state, next_state)
+            train_loss += self.loss_fn(state, next_state)
             state = next_state.detach()
             
         """
@@ -102,7 +103,7 @@ class LSTM(pl.LightningModule):
         for step in range(self.feedforward_steps):
             # Forward pass
             next_state, _ = self.forward(state)
-            val_loss = self.loss_fn(state, next_state)
+            val_loss += self.loss_fn(state, next_state)
             state = next_state.detach()
        
         """
@@ -307,145 +308,7 @@ class FFNet(pl.LightningModule):
         return x
 
 
-class VarFFEnc(pl.LightningModule):
-    """
-    This class implement a general VARiational Feed Forward Encoder (VarFFEnc)
-    """
-    def __init__(self, params):
-        # Initialize parent class
-        super().__init__()
-        
-        # Retrieve parameters
-        self.layers_sizes = params["layers_sizes"]
-        self.num_layers = len(self.layers_sizes)
-        self.act = params["act"]
-        self.drop_p = params["drop_p"]
-        self.encoded_space_dim = params["encoded_space_dim"]
-        
-        ### Network architecture
-        # Feed forward part
-        self.ff_net = FFNet(params)
-        
-   
-        # Encode mean
-        self.encoder_mean = nn.Sequential(
-            # First linear layer
-            nn.Linear(self.layers_sizes[-1], 16),
-            nn.Dropout(self.drop_p, inplace = False),
-            self.act,
-            # Second linear layer
-            nn.Linear(16, self.encoded_space_dim)
-        )
-        
-        
-        # Encode log_var
-        self.encoder_logvar = nn.Sequential(
-            # First linear layer
-            nn.Linear(self.layers_sizes[-1], 16),
-            nn.Dropout(self.drop_p, inplace = False),
-            self.act,
-            # Second linear layer
-            nn.Linear(16, self.encoded_space_dim)
-        )
-        
-        print("Encoder initialized")
-        
-    def forward(self, x):
-        # Feedforward part
-        x = self.ff_net(x)
-        
-        # Dropout and activation
-        x = nn.Dropout(self.drop_p, inplace = False)(x)
-        x = self.act(x)
-            
-        # Encode mean
-        mean = self.encoder_mean(x)
-        
-        # Encode logvar
-        logvar = self.encoder_logvar(x)
- 
-        return mean, logvar
 
-
-class VarFFAE(pl.LightningModule):
-    """
-    Implementation a general feed forward auto encoder
-    """
-    def __init__(self, params):
-        # Initialize parent class
-        super().__init__()
-        
-        # Retrieve parameters
-        self.layers_sizes = params["layers_sizes"]
-        self.num_layers = len(self.layers_sizes)
-        self.act = params["act"]
-        self.drop_p = params["drop_p"]
-        self.encoded_space_dim = params["encoded_space_dim"]
-        self.loss_fn = params["loss_fn"]
-        self.lr = params["lr"]
-        
-        ### Network architecture
-        self.encoder = VarFFEnc(params)
-        
-        # Reverse layers sizes for decoder part
-        params["layers_sizes"].reverse()
-        self.decoder = nn.Sequential(
-            nn.Linear(self.encoded_space_dim, 16),
-            nn.Dropout(self.drop_p, inplace = False),
-            self.act,
-            nn.Linear(16, self.layers_sizes[0]),
-            nn.Dropout(self.drop_p, inplace = False),
-            self.act,
-            FFNet(params)
-        )
-        
-        print("Autoencoder Initialized")
-        
-    def forward(self, x):
-        # Encode data
-        mean, log_var = self.encoder(x)
-        
-        # Sample data
-        x = Sampler()(mean, log_var)
-        
-        # Decode data
-        x = self.decoder(x)
-        
-        return x, mean, log_var
-        
-    def training_step(self, batch, batch_idx):
-        # Forward step
-        rec_batch, mean, log_var = self.forward(batch)
-        # Compute reconstruction loss
-        rec_loss = self.loss_fn(rec_batch, batch)
-        # KL Loss
-        kl_loss = nKLDivLoss()(mean, log_var)
-        # Total train loss
-        train_loss = rec_loss + kl_loss
-        # Logging to TensorBoard by default
-        self.log("train_loss", train_loss, prog_bar=True)
-        
-        return train_loss
-    
-    def validation_step(self, batch, batch_idx):
-        # Forward step
-        rec_batch, mean, log_var = self.forward(batch)
-        # Compute reconstruction loss
-        rec_loss = self.loss_fn(rec_batch, batch)
-        # KL Loss
-        kl_loss = nKLDivLoss()(mean, log_var)
-        # Total train loss
-        val_loss = rec_loss + kl_loss
-        # Logging to TensorBoard by default
-        self.log("val_loss", val_loss, prog_bar=True)
-        
-        return val_loss
-    
-    def configure_optimizers(self):
-        optimizer = optim.Adam(self.parameters(), lr = self.lr)
-        return optimizer
-    
-    
     
         
         

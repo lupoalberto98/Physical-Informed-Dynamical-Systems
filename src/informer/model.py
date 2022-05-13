@@ -1,20 +1,23 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import pytorch_lightning as pl
+import torch.optim as optim
 
 from Informer.masking import TriangularCausalMask, ProbMask
 from Informer.encoder import Encoder, EncoderLayer, ConvLayer, EncoderStack
 from Informer.decoder import Decoder, DecoderLayer
 from Informer.attn import FullAttention, ProbAttention, AttentionLayer
-from Informer.embed import DataEmbedding
+from Informer.embed import DataEmbedding, PositionalEmbedding
 
 class Informer(nn.Module):
     def __init__(self, enc_in, dec_in, c_out, seq_len, label_len, out_len, 
                 factor=5, d_model=512, n_heads=8, e_layers=3, d_layers=2, d_ff=512, 
-                dropout=0.0, attn='prob', embed='fixed', freq='h', activation='gelu', 
+                dropout=0.0, attn='prob', embed='fixed', freq='h', activation='gelu',
                 output_attention = False, distil=True, mix=True,
                 device=torch.device('cuda:0')):
         super(Informer, self).__init__()
+        self.lr = lr
         self.pred_len = out_len
         self.attn = attn
         self.output_attention = output_attention
@@ -81,20 +84,22 @@ class Informer(nn.Module):
             return dec_out[:,-self.pred_len:,:] # [B, L, D]
 
 
-class InformerStack(nn.Module):
+class InformerStack(pl.LightningModule):
     def __init__(self, enc_in, dec_in, c_out, seq_len, label_len, out_len, 
                 factor=5, d_model=512, n_heads=8, e_layers=[3,2,1], d_layers=2, d_ff=512, 
-                dropout=0.0, attn='prob', embed='fixed', freq='h', activation='gelu',
+                dropout=0.0, lr = 0.001, loss_fn = nn.MSELoss(), attn='prob', embed='fixed', freq='h', activation='gelu',
                 output_attention = False, distil=True, mix=True,
                 device=torch.device('cuda:0')):
         super(InformerStack, self).__init__()
+        self.lr = lr
+        self.loss_fn = loss_fn
         self.pred_len = out_len
         self.attn = attn
         self.output_attention = output_attention
 
         # Encoding
-        self.enc_embedding = DataEmbedding(enc_in, d_model, embed, freq, dropout)
-        self.dec_embedding = DataEmbedding(dec_in, d_model, embed, freq, dropout)
+        self.enc_embedding = PositionalEmbedding(d_model=d_model)#DataEmbedding(enc_in, d_model, embed, freq, dropout)
+        self.dec_embedding = PositionalEmbedding(d_model=d_model)#DataEmbedding(dec_in, d_model, embed, freq, dropout)
         # Attention
         Attn = ProbAttention if attn=='prob' else FullAttention
         # Encoder
@@ -141,12 +146,20 @@ class InformerStack(nn.Module):
         # self.end_conv2 = nn.Conv1d(in_channels=d_model, out_channels=c_out, kernel_size=1, bias=True)
         self.projection = nn.Linear(d_model, c_out, bias=True)
         
-    def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, 
+    def get_tgt_mask(self, size):
+        # Generates a squeare matrix where the each row allows one word more to be seen
+        mask = torch.tril(torch.ones(size, size) == 1) # Lower triangular matrix
+        mask = mask.float()
+        mask = mask.masked_fill(mask == 0, float('-inf')) # Convert zeros to -inf
+        mask = mask.masked_fill(mask == 1, float(0.0)) # Convert ones to 0
+        return mask
+    
+    def forward(self, x_enc, x_dec, x_mark_enc=None, x_mark_dec=None,
                 enc_self_mask=None, dec_self_mask=None, dec_enc_mask=None):
-        enc_out = self.enc_embedding(x_enc, x_mark_enc)
+        enc_out = self.enc_embedding(x_enc)
         enc_out, attns = self.encoder(enc_out, attn_mask=enc_self_mask)
 
-        dec_out = self.dec_embedding(x_dec, x_mark_dec)
+        dec_out = self.dec_embedding(x_dec)
         dec_out = self.decoder(dec_out, enc_out, x_mask=dec_self_mask, cross_mask=dec_enc_mask)
         dec_out = self.projection(dec_out)
         
@@ -156,3 +169,35 @@ class InformerStack(nn.Module):
             return dec_out[:,-self.pred_len:,:], attns
         else:
             return dec_out[:,-self.pred_len:,:] # [B, L, D]
+
+    def training_step(self, batch, batch_idx):
+        ### Prepare network input and labels and first net_out for curriculum learning
+        state  = batch[:, :-1, :]
+        labels = batch[:, 1:, :]
+        # Apply masks
+        self.tgt_mask = self.get_tgt_mask(size=state.shape[1]).to(self.device)
+        # Forward pass
+        next_state = self.forward(state, labels, dec_self_mask=self.tgt_mask)
+        # Compute loss
+        train_loss = self.loss_fn(state, next_state)
+        # Logging to TensorBoard by default
+        self.log("train_loss", train_loss, prog_bar=True)
+        return train_loss
+    
+    def validation_step(self, batch, batch_idx):
+        ### Prepare network input and labels and first net_out for curriculum learning
+        state  = batch[:, :-1, :]
+        labels = batch[:, 1:, :]
+        # Apply masks
+        self.tgt_mask = self.get_tgt_mask(size=state.shape[1]).to(self.device)
+        # Forward pass
+        next_state = self.forward(state, labels, dec_self_mask=self.tgt_mask)
+        # Compute loss
+        val_loss = self.loss_fn(state, next_state)
+        # Logging to TensorBoard by default
+        self.log("val_loss", val_loss, prog_bar=True)
+        return val_loss
+    
+    def configure_optimizers(self):
+        optimizer = optim.Adam(self.parameters(), lr = self.lr)
+        return optimizer

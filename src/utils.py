@@ -77,7 +77,7 @@ class EuDLoss(nn.Module):
         # Compute loss of the derivative function
         if self.include_time:
             # Compute time differences and expand
-            dt = next_state[:,:, -1] - state[:,:, -1]
+            dt = state[:,:, -1]
             dt = dt.unsqueeze(-1)
             # Compute loss
             dyn_loss = torch.mean((rhs_der[:,:,:self.field.dim]-der[:,:,:self.field.dim]*dt)**2)
@@ -115,6 +115,20 @@ class CeDLoss(nn.Module):
         pi_loss = dyn_loss + ic_loss      
                 
         return pi_loss
+    
+### R2 score
+
+def R2Score(net_states, true_states):
+    """
+    Compute R2 score of a generate dynamics with respect target outputs.
+    Inputs are np.array of size = (seq_len, dim)
+    """
+    mean = np.mean(net_states, axis=0)
+    mean = np.expand_dims(mean, axis=0)
+    num = np.sum((true_states - net_states)**2)
+    den = np.sum((true_states - mean)**2)
+    
+    return 1. - num/den
 
 ### Varitaional Autoencoder Functions
 class Sampler(nn.Module):
