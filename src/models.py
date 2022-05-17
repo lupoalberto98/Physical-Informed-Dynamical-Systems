@@ -6,25 +6,31 @@ import torch.optim as optim
 from utils import Sampler, nKLDivLoss
 import numpy as np
 import math
+import warnings
 
 
 
 class LSTM(pl.LightningModule):  
-    def __init__(self, params):
+    def __init__(self, input_size, hidden_units, layers_num, drop_p=0.1, pi_loss_fn=None, dd_loss_fn=nn.MSELoss(),
+                 lr=0.001, feedforward_steps=1, curriculum_learning=None, hypothesis=None, return_rnn=True, annealing=None):
         # Call the parent init function 
         super().__init__()
         # Retrieve parameters
-        self.input_size = params["input_size"]
-        self.hidden_units = params["hidden_units"]
-        self.layers_num = params["layers_num"]
-        self.drop_p = params["drop_p"]
-        self.loss_fn = params["loss_fn"]
-        self.lr = params["lr"]
-        self.feedforward_steps = params["feedforward_steps"]
-        self.curriculum_learning = params["curriculum_learning"]
+        self.input_size = input_size
+        self.hidden_units = hidden_units
+        self.layers_num = layers_num
+        self.drop_p = drop_p
+        self.pi_loss_fn = pi_loss_fn
+        self.dd_loss_fn = dd_loss_fn
+        self.lr = lr
+        self.feedforward_steps = feedforward_steps
+        self.curriculum_learning = curriculum_learning
+        self.hypothesis = hypothesis
+        self.annealing = annealing
+        
         
         # Set output mode
-        self.return_rnn = True
+        self.return_rnn = return_rnn
         
         # Define recurrent layers
         self.rnn = nn.LSTM(input_size=self.input_size, 
@@ -50,44 +56,63 @@ class LSTM(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         ### Prepare network input and labels and first net_out for curriculum learning
         state  = batch[:, :-self.feedforward_steps, :]
-        labels = batch[:, self.feedforward_steps:, :]
+        seq_len = batch.shape[1]
         
         # Initialize loss
-        train_loss = 0
+        pi_loss = 0 # physical informed  loss
+        dd_loss = 0 # data driven loss
+        
+        # Compute physical informed loss
         for step in range(self.feedforward_steps):
-            # Forward pass
-            next_state, _ = self.forward(state)
-            train_loss += self.loss_fn(state, next_state)
-            state = next_state.detach()
-            
-        """
-        # Curriculum learning startegy
-        if self.curriculum_learning is not None:
-            shape = state.shape
-            forget = torch.rand(shape[1]).unsqueeze(1).unsqueeze(0)
-            forget[forget>self.curriculum_learning[self.current_epoch]] = 1.
-            forget[forget<self.curriculum_learning[self.current_epoch]] = 0.
-            # Update state and detach
-            state = torch.cat((state[:,0,:].unsqueeze(1), next_state[:,:-1,:]), dim=1)*forget + state*(1.-forget)
-            state = state.detach()
-            # Forward
-            next_state, _ = self.forward(state)
-           
-        # Compute loss
-        if self.loss_fn.__class__.__name__ == "EuDLoss":
-            train_loss = self.loss_fn(state, next_state)
-        elif self.loss_fn.__class__.__name__ == "CeDLoss":
-            # Trim batches
-            state = state[:,:-1,:]
-            next_state = next_state[:,:-1,:]
-            labels = labels[:,1:,:]
-            # Forward again
-            next_next_state, _ = self.forward(next_state)
-            # Compute loss
-            train_loss = self.loss_fn(state, next_state, next_next_state)
+            true_state = batch[:,step:-self.feedforward_steps+step,:]
+            labels = batch[:,1+step:seq_len-self.feedforward_steps+step+1,:]
+            if self.curriculum_learning is None:
+                # Forward
+                next_state, _ = self.forward(state)
+                # Loss update
+                if self.pi_loss_fn is not None:
+                    pi_loss += self.pi_loss_fn(state, next_state)
+                if self.dd_loss_fn is not None:
+                    dd_loss += self.dd_loss_fn(next_state, labels)
+                state = next_state.detach()
+            else:
+                if self.feedforward_steps==1:
+                    # Forward
+                    next_state, _ = self.forward(state)
+                    # Loss update
+                    if self.pi_loss_fn is not None:
+                        pi_loss += self.pi_loss_fn(state, next_state)
+                    if self.dd_loss_fn is not None:
+                        dd_loss += self.dd_loss_fn(next_state, labels)
+                    state = next_state.detach()
+                else:
+                    shape = state.shape
+                    forget = torch.rand(shape[1]).unsqueeze(1).unsqueeze(0)
+                    forget[forget>self.curriculum_learning[self.current_epoch]] = 1.
+                    forget[forget<self.curriculum_learning[self.current_epoch]] = 0.
+                    # Update state and detach
+                    state = next_state*forget + true_state*(1.-forget)
+                    state = state.detach()
+                    # Forward
+                    next_state, _ = self.forward(state)
+                    # Loss update
+                    if self.pi_loss_fn is not None:
+                        pi_loss += self.pi_loss_fn(state, next_state)
+                    if self.dd_loss_fn is not None:
+                        dd_loss += self.dd_loss_fn(next_state, labels)
+                    state = next_state.detach()
+        
+        # Total loss
+        if self.annealing is None:
+            train_loss = pi_loss + dd_loss 
         else:
-            raise NameError(self.loss_fn.__class__.__name__)
-        """
+            train_loss = pi_loss + dd_loss*self.annealing[self.current_epoch]
+        
+        # Compute loss between true and learned args
+        if self.hypothesis is not None:
+            args_loss = np.sum((self.hypothesis.args.detach().cpu().numpy()-
+                                      self.pi_loss_fn.model.args.detach().cpu().numpy())**2)
+            self.log("args_loss", args_loss, prog_bar=True)
         
         # Logging to TensorBoard by default
         self.log("train_loss", train_loss, prog_bar=True)
@@ -96,43 +121,58 @@ class LSTM(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         ### Prepare network input and labels and first net_out for curriculum learning
         state  = batch[:, :-self.feedforward_steps, :]
-        labels = batch[:, self.feedforward_steps:, :]
+        seq_len = batch.shape[1]
         
         # Initialize loss
-        val_loss = 0
+        pi_loss = 0 # physical informed  loss
+        dd_loss = 0 # data driven loss
+        
+        # Compute physical informed loss
         for step in range(self.feedforward_steps):
-            # Forward pass
-            next_state, _ = self.forward(state)
-            val_loss += self.loss_fn(state, next_state)
-            state = next_state.detach()
-       
-        """
-        # Curriculum learning startegy
-        if self.curriculum_learning is not None:
-            shape = state.shape
-            forget = torch.rand(shape[1]).unsqueeze(1).unsqueeze(0)
-            forget[forget>self.curriculum_learning[self.current_epoch]] = 1.
-            forget[forget<self.curriculum_learning[self.current_epoch]] = 0.
-            # Update state and detach
-            state = torch.cat((state[:,0,:].unsqueeze(1), next_state[:,:-1,:]), dim=1)*forget + state*(1.-forget)
-            state = state.detach()
-            # Forward
-            next_state, _ = self.forward(state)
-        # Compute loss
-        if self.loss_fn.__class__.__name__ == "EuDLoss":
-            val_loss = self.loss_fn(state, next_state)
-        elif self.loss_fn.__class__.__name__ == "CeDLoss":
-            # Trim batches
-            state = state[:,:-1,:]
-            next_state = next_state[:,:-1,:]
-            labels = labels[:,1:,:]
-            # Forward again
-            next_next_state, _ = self.forward(next_state)
-            # Compute loss
-            val_loss = self.loss_fn(state, next_state, next_next_state)
+            true_state = batch[:,step:-self.feedforward_steps+step,:]
+            labels = batch[:,1+step:seq_len-self.feedforward_steps+step+1,:]
+            if self.curriculum_learning is None:
+                # Forward
+                next_state, _ = self.forward(state)
+                # Loss update
+                if self.pi_loss_fn is not None:
+                    pi_loss += self.pi_loss_fn(state, next_state)
+                if self.dd_loss_fn is not None:
+                    dd_loss += self.dd_loss_fn(next_state, labels)
+                state = next_state.detach()
+            else:
+                if self.feedforward_steps==1:
+                    # Forward
+                    next_state, _ = self.forward(state)
+                    # Loss update
+                    if self.pi_loss_fn is not None:
+                        pi_loss += self.pi_loss_fn(state, next_state)
+                    if self.dd_loss_fn is not None:
+                        dd_loss += self.dd_loss_fn(next_state, labels)
+                    state = next_state.detach()
+                else:
+                    shape = state.shape
+                    forget = torch.rand(shape[1]).unsqueeze(1).unsqueeze(0)
+                    forget[forget>self.curriculum_learning[self.current_epoch]] = 1.
+                    forget[forget<self.curriculum_learning[self.current_epoch]] = 0.
+                    # Update state and detach
+                    state = next_state*forget + true_state*(1.-forget)
+                    state = state.detach()
+                    # Forward
+                    next_state, _ = self.forward(state)
+                    # Loss update
+                    if self.pi_loss_fn is not None:
+                        pi_loss += self.pi_loss_fn(state, next_state)
+                    if self.dd_loss_fn is not None:
+                        dd_loss += self.dd_loss_fn(next_state, labels)
+                    state = next_state.detach()
+                    
+        # Total loss
+        if self.annealing is None:
+            val_loss = pi_loss + dd_loss
         else:
-            raise NameError(self.loss_fn.__class__.__name__)
-        """
+            val_loss = pi_loss + dd_loss*self.annealing[self.current_epoch]
+        
         # Logging to TensorBoard by default
         self.log("val_loss", val_loss, logger=True, on_epoch=True, prog_bar=True)
         self.log("epoch_num", self.current_epoch,prog_bar=True)

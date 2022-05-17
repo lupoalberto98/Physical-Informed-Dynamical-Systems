@@ -9,7 +9,7 @@ class DynSysDataset(Dataset):
     """
     Create a Dataset with the dynamics of a generic dynamical systems starting from state0
     """
-    def __init__(self, state0, f, dt, steps, seq_len, discard, include_time=False, transform=None):
+    def __init__(self, state0, f, dt, steps, seq_len, discard, include_time=False, convolution=False, transform=None):
         """
         Args:
         state0 is the initial point (given as 1d array)
@@ -37,7 +37,7 @@ class DynSysDataset(Dataset):
         self.time = self.time[discard:]
         self.dataset = self.dataset[discard:]
         
-        # Include also time dimension
+        # Include time dimension
         if self.include_time:
             self.dataset = np.concatenate((self.dataset, np.expand_dims([self.dt]*steps, -1)), axis=-1)
         
@@ -45,6 +45,9 @@ class DynSysDataset(Dataset):
         self.data = np.reshape(self.dataset[:self.num_sequences*seq_len,:], (self.num_sequences, seq_len, len(self.dataset[0,:])))
         self.data = torch.tensor(self.data, dtype=torch.float32, requires_grad = True)
         
+        # Unsqueeze dimension for convolution 
+        if convolution:
+            self.data = self.data.unsqueeze(1)
         
     def __len__(self):
         return len(self.data)
