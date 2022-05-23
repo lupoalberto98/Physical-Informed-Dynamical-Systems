@@ -5,7 +5,7 @@ from scipy.integrate import odeint
 import torch.nn as nn
 import copy
 from typing import Union
-
+import math
 
 
 
@@ -42,26 +42,40 @@ class Initializer():
 
 
 # Define the vector field for Lorenz 63 system
-class Lorenz63():
-    def __init__(self,  rho, sigma, beta):
-        self.rho=rho
-        self.sigma=sigma
-        self.beta=beta
+class Lorenz63(nn.Module):
+    def __init__(self, params, sigma=1., dt=0.01):
+        super(Lorenz63, self).__init__()
+        self.register_parameter(name="params", param=nn.Parameter(params)) # tensor of size = (3) the same dimension of state, containing parameters (rho, sigma, beta)
+        self.sigma = sigma # Standard deviation of gaussian noise
+        self.dt = dt
         self.dim = 3
         
+        # Torchsde parameters
+        self.noise_type = "diagonal"
+        self.sde_type = "ito"
         
-    def __call__(self, state, t):
-        x, y, z = state
-        return (self.sigma*(y-x), x*(self.rho-z)-y, x*y-self.beta*z)
-    
-    def field(self, state): 
+    def forward(self, t, state): 
         field = torch.clone(state)
-        field[...,0] = self.sigma*(state[...,1] - state[...,0])
-        field[...,1] = state[...,0]*(self.rho - state[...,2]) - state[...,1]
-        field[...,2] = state[...,0]*state[...,1] - self.beta*state[...,2]
-
+        field[...,0] = self.params[...,1]*(state[...,1] - state[...,0])
+        field[...,1] = state[...,0]*(self.params[...,0] - state[...,2]) - state[...,1]
+        field[...,2] = state[...,0]*state[...,1] - self.params[...,2]*state[...,2]
+        
         return field
     
+    ### Functions for torchsde stochastic differential equation solver
+    def f(self, t, state):
+        field = torch.clone(state)
+        field[...,0] = self.params[...,1]*(state[...,1] - state[...,0])
+        field[...,1] = state[...,0]*(self.params[...,0] - state[...,2]) - state[...,1]
+        field[...,2] = state[...,0]*state[...,1] - self.params[...,2]*state[...,2]
+        
+        return field
+    
+    def g(self, t, state):
+        field = torch.ones_like(state)
+        return self.sigma/math.sqrt(2*self.dt)*field
+    
+    ### Jacobian 
     def jacobian(self, state, t):
         """
         Compute the jacobian at a given state of the trajectory
@@ -69,37 +83,31 @@ class Lorenz63():
         x, y, z = state
         jac = np.zeros((self.dim,self.dim)) 
         # Compute derivatives
-        jac[0][0] =  -self.sigma
-        jac[0][1] = self.sigma
-        jac[1][0] = self.rho - z
+        jac[0][0] =  -self.params[1]
+        jac[0][1] = self.params[1]
+        jac[1][0] = self.params[0] - z
         jac[1][1] = -1.
         jac[1][2] = - x
         jac[2][0] = y
         jac[2][1] = x
-        jac[2][2] = -self.beta
+        jac[2][2] = -self.params[2]
 
         return jac
 
 # Vector field of Rossel system
-class Roessler():
-    def __init__(self, a, b, c):
-        self.a = a
-        self.b = b
-        self.c = c
+class Roessler76(nn.Module):
+    def __init__(self, params, noise=None):
+        super(Roessler76, self).__init__()
+        self.register_parameter(name="params", param=nn.Parameter(params))
+        self.noise = noise
         self.dim = 3
         
-    
-    def __call__(self, state, t):
-        x, y, z = state
-        return (-y-z, x+self.a*y, self.b + z*(x-self.c))
-    
-    
-    def field(self, state):
+    def forward(self, t, state):
         field = torch.clone(state)
         field[...,0] = - state[...,1] - state[...,2]
-        field[...,1] = state[...,0] + self.a*state[...,1]
-        field[...,2] = self.b + state[...,2]*(state[...,0] - self.c)
-        
+        field[...,1] = state[...,0] + self.params[0]*state[...,1]
+        field[...,2] = self.params[1] + state[...,2]*(state[...,0] - self.params[2])
+            
         return field
 
     def jacobian(self, state, t):
@@ -108,7 +116,7 @@ class Roessler():
         jac[0][1] = -1.
         jac[0][2] = -1.
         jac[1][0] = 1.
-        jac[1][1] = self.a
+        jac[1][1] = self.params[0]
         jac[2][0] = z
         jac[2][2] = x
         
@@ -117,103 +125,74 @@ class Roessler():
     
 # Lorenz96 model (perturbed)
 class Lorenz96(nn.Module):
-    def __init__(self, args):
+    def __init__(self, dim, params, noise=None):
         """
         n_dim is the number of nodes
         force is the force, list of size n_dim
-        a,b,c are small perturbation, lists of size n_dim
+        args is a tensor of small perturbation (noise) in force and 
         """
         super(Lorenz96, self).__init__()
-        self.register_parameter(name="args", param=nn.Parameter(args))
-        self.dim = len(self.args[0])
-        
-       
+        self.register_parameter(name="params", param=nn.Parameter(params))
+        self.dim = dim
+        self.noise = noise
     
-    def forward(self, state, t):
-        field = []
-        for i in range(self.dim):
-            i_up = (i+1)%self.dim
-            i_down = (i-1)%self.dim
-            i_down2 = (i-2)%self.dim
-            der = (state[i_up] - state[i_down2])*state[i_down] - self.args.detach().numpy()[0,i]*state[i] + self.args.detach().numpy()[1,i]
-            field.append(der)
-         
-        return field
-    
-    
-    def field(self, state):
+    def forward(self, t, state):
         field = torch.clone(state)
+        # Standard Lorenz96
         for i in range(self.dim):
-            i_up = (i+1)%self.dim
-            i_down = (i-1)%self.dim
-            i_down2 = (i-2)%self.dim
-            field[...,i] = (state[...,i_up]-state[...,i_down2])*state[...,i_down]-self.args[0][i]*state[...,i] + self.args[1][i]
-         
+            field[...,i] = self.params[0,i]*(state[...,(i+1)%self.dim]-state[...,i-2])*state[...,i-1]-self.params[1,i]*state[...,i] + self.params[2,i]
+       
         return field
     
-   
+
     
 # Loss classes
-class EuDLoss(nn.Module):
+class Eul(nn.Module):
     """
-    Compute the physical informed loss for a generic dynamical system with Euler scheme
+    Compute forward pass with Euler scheme
     Args:
     dt is the time step
-    field is the field of the dyanamical system
     if time_included, time is carried as last element of input vector
     """
-    def __init__(self, dt, model, include_time=False):
-        super(EuDLoss, self).__init__()
+    def __init__(self, dt, model):
+        super(Eul, self).__init__()
         self.dt = dt
         self.model = model
-        self.include_time = include_time
-  
 
-    def forward(self, state, next_state):
-        dim = state.shape[-1]
-        # Compute derivative term
-        der = self.model.field(state)
-        # Compute derivative
-        rhs_der = next_state - state
-        # Compute loss of the derivative function
-        if self.include_time:
-            # Compute time differences and expand
-            dt = state[:,:, -1]
-            dt = dt.unsqueeze(-1)
-            # Compute loss
-            dyn_loss = torch.mean((rhs_der[:,:,:dim-1]-der[:,:,:dim-1]*dt)**2)
-        else:
-            dyn_loss = torch.mean((rhs_der[:,:,:dim]-der[:,:,:dim]*self.dt)**2)   
-            
-        # Compute initial condition loss
-        ic_loss = torch.mean((next_state[:,0,:]-state[:,1,:])**2)           
-       
-        # Compute total physical informed loss
-        pi_loss = dyn_loss + ic_loss 
+    def forward(self, state):
+        """
+        If state and next_state are the ground truth, then model is the NN ansatz.
+        Else, if next_state is the NN forwarded, then model should be the ground truth
+        """
+        t = 10
+        # Propagate
+        df = self.model(t, state)*self.dt
         
-        return pi_loss
+        return df
     
-class RK4Loss(nn.Module):
+class RK4(nn.Module):
     """
     Implement a 4th order Runge-Kutta method to compute loss
     """
     def __init__(self, dt, model):
-        super(RK4Loss, self).__init__()
+        super(RK4, self).__init__()
         self.dt = dt
         self.model = model
         
-    def forward(self, state, next_state):
+    def forward(self, state):
+        """
+        If state and next_state are the ground truth, then model is the NN ansatz.
+        Else, if next_state is the NN forwarded, then model should be the ground truth
+        """
         # Propagate
-        k1 = self.model.field(state)
-        k2 = self.model.field(state+self.dt*k1/2.)
-        k3 = self.model.field(state+self.dt*k2/2.)
-        k4 = self.model.field(state+self.dt*k3)
-        # Compute Rk4 loss
-        rk4_loss = torch.mean((6*(next_state-state)-self.dt*(k1+2*k2+2*k3+k4))**2)
-        # Compute initial condition loss
-        ic_loss = torch.mean((next_state[:,0,:]-state[:,1,:])**2)    
-        
-        return rk4_loss + ic_loss
+        t = 10
+        k1 = self.model(t, state)
+        k2 = self.model(t, state+self.dt*k1/2.)
+        k3 = self.model(t, state+self.dt*k2/2.)
+        k4 = self.model(t, state+self.dt*k3)
+        df = self.dt*(k1+2*k2+2*k3+k4)/6.0
+                                   
+        return df
 
     
 class ENLoss(nn.Module):
@@ -238,7 +217,7 @@ class CeDLoss(nn.Module):
     Compute the physical informed loss of a dynamical system with central derivative
     Args:
     dt is the time step
-    field is the field of the dyanamical system
+    field is the field of the dyanamical system (true model)
     """
     def __init__(self,  dt, field):
         super(CeDLoss, self).__init__()
@@ -259,6 +238,7 @@ class CeDLoss(nn.Module):
                 
         return pi_loss
     
+        
     
 
 ### R2 score
