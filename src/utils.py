@@ -45,7 +45,7 @@ class Initializer():
 class Lorenz63(nn.Module):
     def __init__(self, params, sigma=1., dt=0.01):
         super(Lorenz63, self).__init__()
-        self.register_parameter(name="params", param=nn.Parameter(params)) # tensor of size = (3) the same dimension of state, containing parameters (rho, sigma, beta)
+        self.params = params # tensor of size = (3) the same dimension of state, containing parameters (rho, sigma, beta)
         self.sigma = sigma # Standard deviation of gaussian noise
         self.dt = dt
         self.dim = 3
@@ -98,7 +98,7 @@ class Lorenz63(nn.Module):
 class Roessler76(nn.Module):
     def __init__(self, params, noise=None):
         super(Roessler76, self).__init__()
-        self.register_parameter(name="params", param=nn.Parameter(params))
+        self.params = params
         self.noise = noise
         self.dim = 3
         
@@ -132,7 +132,7 @@ class Lorenz96(nn.Module):
         args is a tensor of small perturbation (noise) in force and 
         """
         super(Lorenz96, self).__init__()
-        self.register_parameter(name="params", param=nn.Parameter(params))
+        self.params = params
         self.dim = dim
         self.noise = noise
     

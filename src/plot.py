@@ -185,7 +185,7 @@ def plot_rec_trajectory(rec, filename=None):
     ax = plt.axes(projection="3d")
     # Plot reconstructed trajectory
     for i in range(len(rec)):
-        ax.scatter(rec.detach().cpu().numpy()[i,0,:,0], rec.detach().cpu().numpy()[i,0,:,1], rec.detach().cpu().numpy()[i,0,:,2], c="b")
+        ax.scatter(rec.detach().cpu().numpy()[i,0,:,0], rec.detach().cpu().numpy()[i,0,:,1], rec.detach().cpu().numpy()[i,0,:,2], c="b", s=0.1)
         
     # Set labels
     ax.set_xlabel("x")
