@@ -19,7 +19,7 @@ class MetricsCallback(Callback):
         self.train_loss_log.append(train_loss)
         if "params_loss" in trainer.logged_metrics.keys():
             params_loss = trainer.logged_metrics["params_loss"].cpu()
-            self.params_loss_log.append(args_loss)
+            self.params_loss_log.append(params_loss)
         if "train_reg_loss" in trainer.logged_metrics.keys():
             train_reg_loss =  trainer.logged_metrics["train_reg_loss"].cpu()
             self.train_reg_log.append(train_reg_loss)

@@ -27,14 +27,15 @@ class LSTM(pl.LightningModule):
         self.true_system = true_system
         self.perturbation = perturbation
         
-        # Add system parameters to computational graph
-        self.register_parameter(param="params", nn.Parameter(self.system.parameters))
+       
         
         # Define propagation methods
         self.use_pi_loss = use_pi_loss
         self.use_dd_loss = use_dd_loss
         self.pi_loss_method = getattr(utils, method)(self.dt, model=system)
         self.dd_loss_method = getattr(utils, method)(self.dt, model=self.forward)
+        # Add system parameters to computational graph
+        #self.register_parameter(name="params", param=nn.Parameter(self.system.params))
                                                      
         # Set output mode
         self.return_rnn = return_rnn

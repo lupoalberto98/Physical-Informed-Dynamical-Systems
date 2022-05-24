@@ -45,6 +45,7 @@ class Initializer():
 class Lorenz63(nn.Module):
     def __init__(self, params, sigma=1., dt=0.01):
         super(Lorenz63, self).__init__()
+        #self.register_parameter(name="params", param=nn.Parameter(params))
         self.params = params # tensor of size = (3) the same dimension of state, containing parameters (rho, sigma, beta)
         self.sigma = sigma # Standard deviation of gaussian noise
         self.dt = dt
