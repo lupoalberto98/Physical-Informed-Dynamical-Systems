@@ -43,7 +43,7 @@ class Initializer():
 
 # Define the vector field for Lorenz 63 system
 class Lorenz63(nn.Module):
-    def __init__(self, params, sigma=1., dt=0.01):
+    def __init__(self, params, sigma=None, dt=0.01):
         super(Lorenz63, self).__init__()
         #self.register_parameter(name="params", param=nn.Parameter(params))
         self.params = params # tensor of size = (3) the same dimension of state, containing parameters (rho, sigma, beta)
@@ -97,11 +97,16 @@ class Lorenz63(nn.Module):
 
 # Vector field of Rossel system
 class Roessler76(nn.Module):
-    def __init__(self, params, noise=None):
+    def __init__(self, params, sigma=None, dt=0.01):
         super(Roessler76, self).__init__()
         self.params = params
-        self.noise = noise
+        self.sigma = sigma
+        self.dt = dt
         self.dim = 3
+        
+        # Torchsde parameters
+        self.noise_type = "diagonal"
+        self.sde_type = "ito"
         
     def forward(self, t, state):
         field = torch.clone(state)
@@ -110,7 +115,19 @@ class Roessler76(nn.Module):
         field[...,2] = self.params[1] + state[...,2]*(state[...,0] - self.params[2])
             
         return field
+    
+    def f(self, t, state):
+        field = torch.clone(state)
+        field[...,0] = - state[...,1] - state[...,2]
+        field[...,1] = state[...,0] + self.params[0]*state[...,1]
+        field[...,2] = self.params[1] + state[...,2]*(state[...,0] - self.params[2])
+            
+        return field
 
+    def g(self, t, state):
+        field = torch.ones_like(state)
+        return self.sigma/math.sqrt(2*self.dt)*field
+    
     def jacobian(self, state, t):
         x, y, z = state
         jac = np.zeros((self.dim,self.dim)) 
@@ -126,7 +143,7 @@ class Roessler76(nn.Module):
     
 # Lorenz96 model (perturbed)
 class Lorenz96(nn.Module):
-    def __init__(self, dim, params, noise=None):
+    def __init__(self, dim, params, sigma=None, dt=0.01):
         """
         n_dim is the number of nodes
         force is the force, list of size n_dim
@@ -135,8 +152,13 @@ class Lorenz96(nn.Module):
         super(Lorenz96, self).__init__()
         self.params = params
         self.dim = dim
-        self.noise = noise
+        self.sigma = sigma
+        self.dt = dt
     
+        # Torchsde parameters
+        self.noise_type = "diagonal"
+        self.sde_type = "ito"
+        
     def forward(self, t, state):
         field = torch.clone(state)
         # Standard Lorenz96
@@ -145,7 +167,18 @@ class Lorenz96(nn.Module):
        
         return field
     
+    def f(self, t, state):
+        field = torch.clone(state)
+        # Standard Lorenz96
+        for i in range(self.dim):
+            field[...,i] = self.params[0,i]*(state[...,(i+1)%self.dim]-state[...,i-2])*state[...,i-1]-self.params[1,i]*state[...,i] + self.params[2,i]
+       
+        return field
 
+    def g(self, t, state):
+        field = torch.ones_like(state)
+        return self.sigma/math.sqrt(2*self.dt)*field
+    
     
 # Loss classes
 class Eul(nn.Module):

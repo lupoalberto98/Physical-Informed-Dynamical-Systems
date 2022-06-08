@@ -267,10 +267,9 @@ class CVAE(pl.LightningModule):
         
         # Set reg loss to zero
         reg_loss = 0
+        rec_loss = 0
         # Forward step
         enc_state, noise, rec_state = self.forward(state)
-        # Compute reconstruction loss
-        rec_loss = nn.MSELoss()(rec_state, state)
         
         # Compute regularization loss
         if self.enc_space_reg is not None: # self.feedfrward_steps should be 1 here
@@ -284,7 +283,11 @@ class CVAE(pl.LightningModule):
             reg_loss += nn.MSELoss()(state+df+noise.unsqueeze(1).unsqueeze(1), labels)*self.beta
             # Noise regularized loss
             self.log("train_reg_loss", reg_loss, prog_bar=True)
-        
+            # Compute reconstruction loss
+            rec_loss = nn.MSELoss()(rec_state+noise.unsqueeze(1).unsqueeze(1), state)
+        else:
+            # Compute reconstruction loss
+            rec_loss = nn.MSELoss()(rec_state, state)
         
         # Logging to TensorBoard by default
         train_loss = rec_loss + reg_loss
@@ -298,10 +301,10 @@ class CVAE(pl.LightningModule):
         labels = batch[:,:, self.feedforward_steps:, :]
         # Set reg loss to zero
         reg_loss = 0
+        rec_loss = 0
         # Forward step
         enc_state, noise, rec_state = self.forward(state)
-        # Compute reconstruction loss
-        rec_loss = nn.MSELoss()(rec_state, state)
+        
         
         # Compute regularization loss
         if self.enc_space_reg is not None: # self.feedfrward_steps should be 1 here
@@ -315,6 +318,11 @@ class CVAE(pl.LightningModule):
             reg_loss += nn.MSELoss()(state+df+noise.unsqueeze(1).unsqueeze(1), labels)*self.beta
             # Noise regularized loss
             self.log("val_reg_loss", reg_loss, prog_bar=True)
+            # Compute reconstruction loss
+            rec_loss = nn.MSELoss()(rec_state+noise.unsqueeze(1).unsqueeze(1), state)
+        else:
+            # Compute reconstruction loss
+            rec_loss = nn.MSELoss()(rec_state, state)
             
         # Compute reconstruction loss
         val_loss = rec_loss + reg_loss

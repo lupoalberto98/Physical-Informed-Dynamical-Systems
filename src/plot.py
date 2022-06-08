@@ -108,8 +108,14 @@ def plot_3Dtrajectory(net_states, var=[0,1,2], filename=None, color=None):
     ax.set_xlabel("x")
     ax.set_ylabel("y")
     ax.set_zlabel("z")
-    ax.scatter(net_states.detach().cpu().numpy()[:,var[0]], net_states.detach().cpu().numpy()[:,var[1]], net_states.detach().cpu().numpy()[:,var[2]], cmap = "RdBu_r", s=0.1, c=color)
+    
+    if color is not None:
+        ax.scatter(net_states.detach().cpu().numpy()[:,var[0]], net_states.detach().cpu().numpy()[:,var[1]], net_states.detach().cpu().numpy()[:,var[2]], cmap = "RdBu_r", s=0.1, c=color)
+    else:
+        ax.plot(net_states.detach().cpu().numpy()[:,var[0]], net_states.detach().cpu().numpy()[:,var[1]], net_states.detach().cpu().numpy()[:,var[2]], lw=0.1)
+        
     ax.legend()
+    
     if color is not None:
         fig.colorbar(cm.ScalarMappable( cmap="RdBu_r"), ax=ax)
 
@@ -185,7 +191,7 @@ def plot_rec_trajectory(rec, filename=None):
     ax = plt.axes(projection="3d")
     # Plot reconstructed trajectory
     for i in range(len(rec)):
-        ax.scatter(rec.detach().cpu().numpy()[i,0,:,0], rec.detach().cpu().numpy()[i,0,:,1], rec.detach().cpu().numpy()[i,0,:,2], c="b", s=0.1)
+        ax.plot(rec.detach().cpu().numpy()[i,0,:,0], rec.detach().cpu().numpy()[i,0,:,1], rec.detach().cpu().numpy()[i,0,:,2], c="b", lw=0.1)
         
     # Set labels
     ax.set_xlabel("x")
