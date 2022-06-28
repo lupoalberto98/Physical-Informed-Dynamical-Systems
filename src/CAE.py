@@ -188,7 +188,7 @@ class ConvDecoder(pl.LightningModule):
 class ConvAE(pl.LightningModule):
     
     def __init__(self, in_channels, out_channels, kernel_sizes, 
-           padding=(0,0),  encoded_space_dim=1, act=nn.ReLU, drop_p=0.1, seq_len=100, feedforward_steps=1, lr=0.001, dt=0.01, system_name="Lorenz63", system_dim=3, num_param=3, enc_space_reg="PI", beta=1.0):
+           padding=(0,0),  encoded_space_dim=1, act=nn.ReLU, drop_p=0.1, seq_len=100, feedforward_steps=1, lr=0.001, dt=0.01, system_name="Lorenz63", system_dim=3, num_param=3, enc_space_reg="PI", beta=1.0, lr_scheduler_name="ExponentialLR", gamma=1.0):
         
         super().__init__()
         self.encoder = ConvEncoder(in_channels, out_channels, kernel_sizes, padding, encoded_space_dim, 
@@ -204,8 +204,9 @@ class ConvAE(pl.LightningModule):
         self.system_dim = system_dim
         self.num_param = num_param
         self.enc_space_reg = enc_space_reg # string specifing ho to compute loss
-        # Weights for regularization losses
-        self.beta = beta
+        self.beta = beta # Weights for regularization losses
+        self.lr_scheduler_name = lr_scheduler_name
+        self.gamma = gamma
         
         ### Checkings 
         if self.enc_space_reg == "PI":
@@ -250,6 +251,9 @@ class ConvAE(pl.LightningModule):
         # Logging to TensorBoard by default
         train_loss = rec_loss + reg_loss
         self.log("train_loss", train_loss, prog_bar=True)
+        
+        # Lr scheduler
+        self.lr_scheduler.step()
     
         return train_loss
     
@@ -286,4 +290,5 @@ class ConvAE(pl.LightningModule):
     
     def configure_optimizers(self):
         optimizer = optim.Adam(self.parameters(), lr = self.lr)
+        self.lr_scheduler = getattr(optim.lr_scheduler, self.lr_scheduler_name)(optimizer, self.gamma)
         return optimizer

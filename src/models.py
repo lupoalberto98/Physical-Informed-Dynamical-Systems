@@ -13,7 +13,7 @@ import utils
 
 class LSTM(pl.LightningModule):  
     def __init__(self, input_size, hidden_units, layers_num, system, true_system, drop_p=0.1,
-                 lr=0.001, dt=0.01, method="RK4", use_pi_loss=False, use_dd_loss=True, return_rnn=False, perturbation=None, bidirectional=False):
+                 lr=0.001, dt=0.01, method="RK4", use_pi_loss=False, use_dd_loss=True, return_rnn=False, perturbation=None, bidirectional=False, train_out=False):
         # Call the parent init function 
         super().__init__()
         # Retrieve parameters
@@ -26,7 +26,7 @@ class LSTM(pl.LightningModule):
         self.system = system
         self.true_system = true_system
         self.perturbation = perturbation
-        
+        self.train_out = train_out
        
         
         # Define propagation methods
@@ -56,7 +56,8 @@ class LSTM(pl.LightningModule):
         # LSTM
         x, rnn_state = self.rnn(x, state)
         # Linear layer
-        x = self.out(x)
+        if self.train_out:
+            x = self.out(x)
         # Remember to return also the RNN state, you will need it to generate data
         if self.return_rnn:
             return x, rnn_state

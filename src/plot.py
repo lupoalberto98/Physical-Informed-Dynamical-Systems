@@ -127,7 +127,7 @@ def plot_3Dtrajectory(net_states, var=[0,1,2], filename=None, color=None):
     return fig
     
 
-def poincare_plot(states, true_states=None, n_var=3, filename=None, prediction_steps=1000):
+def poincare_plot(states, delay=1, true_states=None, n_var=3, filename=None, prediction_steps=1000, c1="blue", c2="orange"):
     ### Plot two trajectories to compare, varaibles against time
     fig, axs = plt.subplots(figsize=(10,5), ncols=1, nrows=n_var)
     gs = axs[1].get_gridspec()
@@ -135,10 +135,10 @@ def poincare_plot(states, true_states=None, n_var=3, filename=None, prediction_s
     # Plot dynamic variables
     index = 0
     for ax in axs[0:]:
-        ax.set_xlabel("$x$"+str(index+1))
-        ax.scatter(states.detach().cpu().numpy()[:prediction_steps, index], states.detach().cpu().numpy()[1:prediction_steps+1,index], s=0.2, label="Predicted") 
+        ax.set_xlabel("$x^{("+str(index+1)+")}_{t-\\tau}$")
+        ax.scatter(states.detach().cpu().numpy()[:prediction_steps-delay, index], states.detach().cpu().numpy()[delay:prediction_steps,index], s=0.2, label="Predicted", c=c1) 
         if true_states is  not None:
-            ax.scatter(true_states.detach().cpu().numpy()[:prediction_steps, index], true_states.detach().cpu().numpy()[1:prediction_steps+1,index], s=0.2, label="Actual")
+            ax.scatter(true_states.detach().cpu().numpy()[:prediction_steps, index], true_states.detach().cpu().numpy()[1:prediction_steps+1,index], s=0.2, label="Actual", c=c2)
             ax.legend(loc = "upper right", fontsize = "x-small")
         index += 1
         
@@ -146,7 +146,7 @@ def poincare_plot(states, true_states=None, n_var=3, filename=None, prediction_s
    
     # Set labels
     for i in range(n_var):
-        axs[i].set_ylabel("y"+str(i+1))
+        axs[i].set_ylabel("$x^{("+str(i+1)+")}_t$")
     
     fig.tight_layout()
     # Save and return
