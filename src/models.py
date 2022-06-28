@@ -13,7 +13,7 @@ import utils
 
 class LSTM(pl.LightningModule):  
     def __init__(self, input_size, hidden_units, layers_num, system, true_system, drop_p=0.1,
-                 lr=0.001, dt=0.01, method="RK4", use_pi_loss=False, use_dd_loss=True, return_rnn=False, perturbation=None, bidirectional=False, train_out=False):
+                 lr=0.001, dt=0.01, method="RK4", use_pi_loss=False, return_rnn=False, perturbation=None, bidirectional=False, train_out=False):
         # Call the parent init function 
         super().__init__()
         # Retrieve parameters
@@ -29,11 +29,15 @@ class LSTM(pl.LightningModule):
         self.train_out = train_out
        
         
-        # Define propagation methods
+        # Define propagation methods (either use physics informed or data driven loss)
         self.use_pi_loss = use_pi_loss
-        self.use_dd_loss = use_dd_loss
-        self.pi_loss_method = getattr(utils, method)(self.dt, model=system)
-        self.dd_loss_method = getattr(utils, method)(self.dt, model=self.forward)
+        if self.use_pi_loss:
+            # Physical informed loss
+            self.method = getattr(utils, method)(self.dt, model=system)
+        else:
+            # Data driven loss
+            self.method = getattr(utils, method)(self.dt, model=self.forward)
+            
         # Add system parameters to computational graph
         #self.register_parameter(name="params", param=nn.Parameter(self.system.params))
                                                      
@@ -69,36 +73,24 @@ class LSTM(pl.LightningModule):
         state  = batch[:, :-1, :]
         labels = batch[:, 1:,:]
         
-        # Initialize loss
-        pi_loss = 0 # physical informed  loss
-        dd_loss = 0 # data driven loss
-        
-        # Physical informed loss
-        if self.use_pi_loss is not None:
+        if self.use_pi_loss:
+            ## Physical informed loss
             # Forward
             next_state = self.forward(batch_idx, state) # Propagated through network
-            df = self.pi_loss_method(state) # Differential computeed with true model
-            pi_loss += nn.MSELoss()(state+df, next_state)
-        else:
-            warnings.warn("No physical informed loss function found")
-            
-        # Data driven loss + eventual perturbation
-        if self.use_dd_loss:
+            df = self.method(state) # Differential computeed with true model
+            train_loss = nn.MSELoss()(state+df, next_state)
+        else: 
+            ## Data driven loss + eventual perturbation
             # Forward
-            df = self.dd_loss_method(state) # Differential computed propagating network
+            df = self.method(state) # Differential computed propagating network
             if self.perturbation is None:
-                dd_loss += nn.MSELoss()(state+df, labels)
+                train_loss = nn.MSELoss()(state+df, labels)
             else:
-                dd_loss += nn.MSELoss()(state+df+self.perturbation*self.dt, labels)
+                train_loss = nn.MSELoss()(state+df+self.perturbation*self.dt, labels)
       
         # Compute loss between true and learned parameters
         params_loss = np.mean((self.system.params.detach().cpu().numpy()-self.true_system.params.detach().cpu().numpy())**2)
         self.log("params_loss", params_loss, prog_bar=True)
-        
-        
-        
-        # Total loss 
-        train_loss = pi_loss + dd_loss
         
         # Logging to TensorBoard by default
         self.log("train_loss", train_loss, prog_bar=True)
@@ -109,31 +101,20 @@ class LSTM(pl.LightningModule):
         state  = batch[:, :-1, :]
         labels = batch[:,1:,:]
         
-        # Initialize loss
-        pi_loss = 0 # physical informed  loss
-        dd_loss = 0 # data driven loss
-        
-        # Physical informed loss
         if self.use_pi_loss is not None:
+            ## Physical informed loss
             # Forward
             next_state = self.forward(batch_idx, state) # Propagated through network
-            df = self.pi_loss_method(state) # Differential computeed with true model
-            pi_loss += nn.MSELoss()(state+df, next_state)
+            df = self.method(state) # Differential computeed with true model
+            val_loss = nn.MSELoss()(state+df, next_state)
         else:
-            warnings.warn("No physical informed loss function found")
-            
-        # Data driven loss + eventual perturbation
-        if self.use_dd_loss:
+            ## Data driven loss + eventual perturbation
             # Forward
-            df = self.dd_loss_method(state) # Differential computed propagating network
+            df = self.method(state) # Differential computed propagating network
             if self.perturbation is None:
-                dd_loss += nn.MSELoss()(state+df, labels)
+                val_loss = nn.MSELoss()(state+df, labels)
             else:
-                dd_loss += nn.MSELoss()(state+df+self.perturbation*self.dt, labels)
-        
-        
-        # Total loss 
-        val_loss = pi_loss + dd_loss
+                val_loss = nn.MSELoss()(state+df+self.perturbation*self.dt, labels)
         
         # Logging to TensorBoard by default
         self.log("val_loss", val_loss, logger=True, on_epoch=True, prog_bar=True)
