@@ -13,7 +13,7 @@ import utils
 
 class LSTM(pl.LightningModule):  
     def __init__(self, input_size, hidden_units, layers_num, system, true_system, drop_p=0.1,
-                 lr=0.001, dt=0.01, method="RK4", use_pi_loss=False, return_rnn=False, perturbation=None, bidirectional=False, train_out=False):
+                 lr=0.001, dt=0.01, method_name="RK4", use_pi_loss=False, return_rnn=False, perturbation=None, bidirectional=False, train_out=True):
         # Call the parent init function 
         super().__init__()
         # Retrieve parameters
@@ -26,17 +26,16 @@ class LSTM(pl.LightningModule):
         self.system = system
         self.true_system = true_system
         self.perturbation = perturbation
-        self.train_out = train_out
-       
-        
+        self.train_out = train_out 
         # Define propagation methods (either use physics informed or data driven loss)
+        self.method_name = method_name
         self.use_pi_loss = use_pi_loss
         if self.use_pi_loss:
             # Physical informed loss
-            self.method = getattr(utils, method)(self.dt, model=system)
+            self.method = getattr(utils, self.method_name)(self.dt, model=system.forward)
         else:
-            # Data driven loss
-            self.method = getattr(utils, method)(self.dt, model=self.forward)
+            # Dat driven loss
+            self.method = getattr(utils, self.method_name)(self.dt, model=self.forward)
             
         # Add system parameters to computational graph
         #self.register_parameter(name="params", param=nn.Parameter(self.system.params))
@@ -53,12 +52,12 @@ class LSTM(pl.LightningModule):
                           bidirectional=bidirectional)
         # Define output layer
         self.out = nn.Linear(self.hidden_units, self.input_size)
-        print("Network initialized")
+        print("LSTM initialized")
 
         
-    def forward(self,t, x, state=None):
+    def forward(self,t, x, rnn_state=None):
         # LSTM
-        x, rnn_state = self.rnn(x, state)
+        x, rnn_state = self.rnn(x, rnn_state)
         # Linear layer
         if self.train_out:
             x = self.out(x)
@@ -80,7 +79,7 @@ class LSTM(pl.LightningModule):
             df = self.method(state) # Differential computeed with true model
             train_loss = nn.MSELoss()(state+df, next_state)
         else: 
-            ## Data driven loss + eventual perturbation
+            ## Data driven loss + possible perturbation
             # Forward
             df = self.method(state) # Differential computed propagating network
             if self.perturbation is None:
@@ -101,15 +100,14 @@ class LSTM(pl.LightningModule):
         state  = batch[:, :-1, :]
         labels = batch[:,1:,:]
         
-        if self.use_pi_loss is not None:
+        if self.use_pi_loss:
             ## Physical informed loss
             # Forward
             next_state = self.forward(batch_idx, state) # Propagated through network
             df = self.method(state) # Differential computeed with true model
             val_loss = nn.MSELoss()(state+df, next_state)
         else:
-            ## Data driven loss + eventual perturbation
-            # Forward
+            ## Data driven loss + possible perturbation
             df = self.method(state) # Differential computed propagating network
             if self.perturbation is None:
                 val_loss = nn.MSELoss()(state+df, labels)

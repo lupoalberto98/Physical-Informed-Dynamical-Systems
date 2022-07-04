@@ -7,6 +7,7 @@ from torchdiffeq import odeint_adjoint as odeint
 import torchsde
 import pandas as pd
 
+
 class GenerateDynSystem():
     """
     Generate data from an autonomous dynamical system
@@ -44,7 +45,9 @@ class GenerateDynSystem():
         else:
             self.dataset = torchsde.sdeint(self.model, self.state0.unsqueeze(0), self.time, method='euler') 
             self.dataset = self.dataset.squeeze()
-            
+        
+        
+        # Discard first entries 
         self.time = self.time[self.discard:]
         self.dataset = self.dataset[self.discard:]
         
@@ -52,9 +55,13 @@ class GenerateDynSystem():
         if self.include_time:
             self.dataset = torch.cat((self.dataset, torch.tensor([self.dt]*steps).unsqueeze(-1)), dim=-1)
             
+        # retrieve data dimension
+        self.dim = self.dataset.shape[1]
+        
         # Convert into pandas dataframe and save
-        df =  pd.DataFrame(self.dataset)
-        df.to_pickle(self.filename)
+        df =  pd.DataFrame(torch.cat((self.time.unsqueeze(1), self.dataset), dim=1).numpy())
+        df.columns = ['t'] + ["x"+str(i+1) for i in range(self.dim)] # set columns names
+        df.to_csv(self.filename)
         
         return self.dataset, self.time
     
@@ -63,12 +70,11 @@ class DynSysDataset(Dataset):
     """
     Create a Dataset by dividing into datas sequences of fixed length and time step which is tau (int) times dt
     """
-    def __init__(self, filename, seq_len=100, discard=1000, dt=0.01, tau=1, convolution=False, transform=None):
+    def __init__(self, filename, seq_len=100, dt=0.01, tau=1, convolution=False, transform=None):
         super().__init__()
         # Parameters
         self.filename = filename
         self.seq_len = seq_len
-        self.discard = discard
         self.dt = dt
         self.tau = tau #integer values specifying multiples of time step dt to take
         self.convolution = convolution
@@ -76,17 +82,16 @@ class DynSysDataset(Dataset):
         
         
         # Load pandas dataframe from filename and convert to torch tensor
-        self.dataset = pd.read_pickle(filename)
-        self.dataset = torch.tensor(self.dataset.values, dtype=torch.float32, requires_grad=True)
+        df = pd.read_csv(filename)
+        self.time = torch.tensor(df.loc[:,"t"], dtype=torch.float32, requires_grad=False)
+        self.dataset = torch.tensor(df.loc[:,"x1":].values, dtype=torch.float32, requires_grad=True)
         original_length = self.dataset.shape[0]
         length = int(original_length/tau) #equal to original length if tau is 1
         self.num_sequences = int(length/seq_len)
-        self.dataset = self.dataset[0::tau,:] # take onlmy values every tau(1,2,3,...) steps
+        # take only values every tau(1,2,3,...) steps
+        self.time = self.time[0::tau]
+        self.dataset = self.dataset[0::tau,:] 
         
-        # Time (discard is needed only here, it is the value used to generate the data)
-        self.time = torch.arange(0.0, (original_length+self.discard)*self.dt, self.dt)
-        self.time = self.time[self.discard:]
-        self.time = self.time[0::tau] # take only values every tau(1,2,3,...) steps
         
         # Divide in into tensor of size = (num_sequences, len_seq, feature_dim)
         self.data = torch.reshape(self.dataset[:self.num_sequences*seq_len,:], (self.num_sequences, seq_len, len(self.dataset[0,:])))

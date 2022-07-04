@@ -116,6 +116,7 @@ class Roessler76(nn.Module):
             
         return field
     
+    ### Functions for torchsde stochastic differential equation solver
     def f(self, t, state):
         field = torch.clone(state)
         field[...,0] = - state[...,1] - state[...,2]
@@ -167,6 +168,7 @@ class Lorenz96(nn.Module):
        
         return field
     
+    ### Functions for torchsde stochastic differential equation solver
     def f(self, t, state):
         field = torch.clone(state)
         # Standard Lorenz96
@@ -191,14 +193,14 @@ class Eul(nn.Module):
     def __init__(self, dt, model):
         super(Eul, self).__init__()
         self.dt = dt
-        self.model = model
+        self.model = model # callable object o nn.Module subclass
 
     def forward(self, state):
         """
         If state and next_state are the ground truth, then model is the NN ansatz.
         Else, if next_state is the NN forwarded, then model should be the ground truth
         """
-        t = 10
+        t = 10 # required by system solvers
         # Propagate
         df = self.model(t, state)*self.dt
         
@@ -211,7 +213,7 @@ class RK4(nn.Module):
     def __init__(self, dt, model):
         super(RK4, self).__init__()
         self.dt = dt
-        self.model = model
+        self.model = model # callable object o nn.Module subclass
         
     def forward(self, state):
         """
