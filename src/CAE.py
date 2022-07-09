@@ -223,6 +223,8 @@ class ConvAE(pl.LightningModule):
         return (enc, rec)
 
     def training_step(self, batch, batch_idx):
+        # Unsqueeze batch
+        batch = batch.unsqueeze(1)
         ### Prepare network input and labels 
         state  = batch[:,:, :self.seq_len-self.feedforward_steps, :]
         labels = batch[:,:, self.feedforward_steps:, :]
@@ -258,6 +260,8 @@ class ConvAE(pl.LightningModule):
         return train_loss
     
     def validation_step(self, batch, batch_idx):
+        # Unsqueeze batch
+        batch = batch.unsqueeze(1)
         ### Prepare network input and labels 
         state  = batch[:,:, :self.seq_len-self.feedforward_steps, :]
         labels = batch[:,:, self.feedforward_steps:, :]
@@ -292,3 +296,5 @@ class ConvAE(pl.LightningModule):
         optimizer = optim.Adam(self.parameters(), lr = self.lr)
         self.lr_scheduler = getattr(optim.lr_scheduler, self.lr_scheduler_name)(optimizer, self.gamma)
         return optimizer
+    
+    

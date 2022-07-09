@@ -79,6 +79,9 @@ class ConvLSTMAE(pl.LightningModule):
         return (enc, rec)
         
     def training_step(self, batch, batch_idx):
+        # Unsqueeze batch
+        batch = batch.unsqueeze(1)
+        
         ### Prepare network input and labels 
         state  = batch[:,:, :self.seq_len-self.feedforward_steps, :]
         labels = batch[:,:, self.feedforward_steps:, :]
@@ -111,6 +114,8 @@ class ConvLSTMAE(pl.LightningModule):
         return train_loss
     
     def validation_step(self, batch, batch_idx):
+        # Unsqueeze batch
+        batch = batch.unsqueeze(1)
         ### Prepare network input and labels 
         state  = batch[:,:, :self.seq_len-self.feedforward_steps, :]
         labels = batch[:,:, self.feedforward_steps:, :]
@@ -251,6 +256,8 @@ class ConvVAE(pl.LightningModule):
         return (rec, mean, log_var)
     
     def training_step(self, batch, batch_idx):
+        # Unsqueeze batch
+        batch = batch.unsqueeze(1)
         # Forward step
         rec_batch, mean, log_var = self.forward(batch)
         # Compute reconstruction loss
@@ -265,6 +272,8 @@ class ConvVAE(pl.LightningModule):
         return train_loss
     
     def validation_step(self, batch, batch_idx):
+        # Unsqueeze batch
+        batch = batch.unsqueeze(1)
         # Forward step
         rec_batch, mean, log_var = self.forward(batch)
         # Compute reconstruction loss

@@ -70,7 +70,7 @@ class DynSysDataset(Dataset):
     """
     Create a Dataset by dividing into datas sequences of fixed length and time step which is tau (int) times dt
     """
-    def __init__(self, filename, seq_len=100, dt=0.01, tau=1, convolution=False, transform=None):
+    def __init__(self, filename, seq_len=100, dt=0.01, tau=1, transform=None):
         super().__init__()
         # Parameters
         self.filename = filename
@@ -97,9 +97,6 @@ class DynSysDataset(Dataset):
         self.data = torch.reshape(self.dataset[:self.num_sequences*seq_len,:], (self.num_sequences, seq_len, len(self.dataset[0,:])))
         self.data = self.data.type(torch.float32)
         
-        # Unsqueeze dimension for convolution 
-        if self.convolution:
-            self.data = self.data.unsqueeze(1)
         
     def __len__(self):
         return len(self.data)

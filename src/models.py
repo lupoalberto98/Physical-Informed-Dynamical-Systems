@@ -126,6 +126,31 @@ class LSTM(pl.LightningModule):
         
     def set_output(self, return_rnn):
         self.return_rnn = return_rnn
+    
+    def num_timesteps(self, time):
+        """Returns the number of timesteps required to pass time time.
+        Raises an error if timestep value does not divide length time.
+        """
+        num_timesteps = time / self.dt
+        if not num_timesteps.is_integer():
+            raise Exception
+        return int(num_timesteps)
+        
+    def predict(self, time, input, continuation=False):
+        " Generate a trajectory of prediction_steps lenght starting from input. Return torch.tensor"
+        prediction_steps = self.num_timesteps(time)
+        state = input[0].unsqueeze(0).unsqueeze(0)
+        rnn_state = (torch.zeros(self.layers_num, 1,self.hidden_units), torch.zeros(self.layers_num, 1,self.hidden_units))
+        net_states = []
+        self.eval()
+        self.set_output(True)
+        
+        for i in range(prediction_steps):
+            with torch.no_grad():
+                net_states.append(state[-1].squeeze().numpy())            
+                state, rnn_state = self(i, state, rnn_state)
+           
+        return torch.tensor(np.array(net_states))
 
 class PositionalEncoding(nn.Module):
     def __init__(self, dim_model, dropout_p, max_len):

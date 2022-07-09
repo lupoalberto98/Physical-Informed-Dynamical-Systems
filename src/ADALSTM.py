@@ -69,6 +69,7 @@ class multi_rate_sampler():
 def pretrain(stack_lstm, train_mrs, val_mrs, patience=100, max_num_epochs=10):
     """
     Train independently num_lstm lstm with output layer
+    stack_lstm is a disctionary containing all the lstms
     """
     num_lstm = len(stack_lstm)
     train_loss_logs = []
@@ -76,13 +77,13 @@ def pretrain(stack_lstm, train_mrs, val_mrs, patience=100, max_num_epochs=10):
     for i in range(num_lstm):
         print("### Train LSTM "+str(i+1)+" ###")
         # Call the model
-        model = stack_lstm[i]
+        model = stack_lstm["LSTM"+str(i+1)]
         # Define the callbacks
         metrics_callback =  MetricsCallback()
         early_stopping = EarlyStopping(monitor="val_loss", patience = patience, mode="min")
         # Train
         trainer = pl.Trainer(max_epochs=max_num_epochs, callbacks=[metrics_callback, early_stopping], 
-                             accelerator="auto", log_every_n_steps=1)
+                             accelerator="auto", log_every_n_steps=1, enable_model_summary=False)
         trainer.fit(model=model, train_dataloaders=train_mrs[i], val_dataloaders=val_mrs[i])
         # Append losses
         train_loss_logs.append(metrics_callback.train_loss_log)
@@ -106,15 +107,16 @@ class AdaLSTM(pl.LightningModule):
         self.hidden_units = hidden_units
         self.lr = lr
         self.return_rnn = return_rnn
-        self.layers_num_list = [stack_lstm[i].layers_num for i in range(self.num_lstm)]
+        self.layers_num_list = [stack_lstm["LSTM"+str(i+1)].layers_num for i in range(self.num_lstm)]
+        
         
         # Set train_out false and return_rrn false to train
         for i in range(self.num_lstm):
-            stack_lstm[i].train_out = False
-            stack_lstm[i].return_rnn = self.return_rnn
+            stack_lstm["LSTM"+str(i+1)].train_out = False
+            stack_lstm["LSTM"+str(i+1)].return_rnn = self.return_rnn
 
         # Define a single module
-        self.stack_lstm = nn.ModuleList(stack_lstm)
+        self.stack_lstm = nn.ModuleDict(stack_lstm)
                 
         # Attention weights
         self.register_parameter(name="attention", param=nn.Parameter(0.01*torch.randn(self.num_lstm)))
@@ -127,7 +129,7 @@ class AdaLSTM(pl.LightningModule):
     def set_return_rnn(self, value):
         self.return_rnn = value
         for i in range(self.num_lstm):
-            self.stack_lstm[i].return_rnn = value
+            self.stack_lstm["LSTM"+str(i+1)].return_rnn = value
 
         
     def forward(self,t, x, rnn_state=[None]*10000):
@@ -138,7 +140,7 @@ class AdaLSTM(pl.LightningModule):
         """
         out = 0
         for i in range(self.num_lstm):
-            lstm_i = self.stack_lstm[i]
+            lstm_i = self.stack_lstm["LSTM"+str(i+1)]
             if self.return_rnn:
                 out_i, rnn_state[i] = lstm_i(t, x[i], rnn_state[i])
             else:

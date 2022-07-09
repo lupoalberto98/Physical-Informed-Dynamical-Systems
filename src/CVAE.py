@@ -261,6 +261,8 @@ class CVAE(pl.LightningModule):
         return (param, noise, rec)
 
     def training_step(self, batch, batch_idx):
+        # Unsqueeze batch
+        batch = batch.unsqueeze(1)
         ### Prepare network input and labels 
         state  = batch[:,:, :self.seq_len-self.feedforward_steps, :]
         labels = batch[:,:, self.feedforward_steps:, :]
@@ -296,6 +298,8 @@ class CVAE(pl.LightningModule):
         return train_loss
     
     def validation_step(self, batch, batch_idx):
+        # Unsqueeze batch
+        batch = batch.unsqueeze(1)
         ### Prepare network input and labels 
         state  = batch[:,:, :self.seq_len-self.feedforward_steps, :]
         labels = batch[:,:, self.feedforward_steps:, :]

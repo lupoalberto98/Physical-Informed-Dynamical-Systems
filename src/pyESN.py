@@ -2,6 +2,7 @@ import numpy as np
 import utils
 import torch
 
+
 def correct_dimensions(s, targetlength):
     """checks the dimensionality of some numeric argument s, broadcasts it
        to the specified length if possible.
@@ -38,6 +39,7 @@ class ESN:
         n_reservoir=200,
         spectral_radius=0.95,
         sparsity=0,
+        erdos_graph=False,
         noise=1e-6,
         timestep=0.01,
         input_shift=None,
@@ -89,6 +91,7 @@ class ESN:
         self.n_outputs = n_outputs
         self.spectral_radius = spectral_radius
         self.sparsity = sparsity
+        self.erdos_graph = erdos_graph
         self.noise = noise
         self.timestep = timestep
         self.input_shift = correct_dimensions(input_shift, n_inputs)
@@ -134,13 +137,20 @@ class ESN:
         # RandomState.rand(array_dimensions) creates an array of the given shape
         # and populates it with random samples from a uniform distribution over
         # [0, 1).
-        W = self.random_state_.rand(self.n_reservoir, self.n_reservoir) - 0.5
+        if self.erdos_graph:
+            self.W = np.ones((self.n_reservoir, self.n_reservoir))
+        else:
+            self.W = self.random_state_.rand(self.n_reservoir, self.n_reservoir) - 0.5
         # delete the fraction of connections given by (self.sparsity):
-        W[self.random_state_.rand(*W.shape) < self.sparsity] = 0
+        self.W[self.random_state_.rand(*self.W.shape) < self.sparsity] = 0
         # compute the spectral radius of these weights:
-        radius = np.max(np.abs(np.linalg.eigvals(W)))
-        # rescale them to reach the requested spectral radius:
-        self.W = W * self.spectral_radius / radius
+        if self.erdos_graph:
+            pass
+        else:
+            radius = np.max(np.abs(np.linalg.eigvals(self.W)))
+            # rescale them to reach the requested spectral radius:
+            self.W = self.W * self.spectral_radius / radius
+            
         rho_W = np.max(np.abs(np.linalg.eigvals(self.W)))
         if not self.silent:
             print(f"Spectral radius of W is {rho_W}")
@@ -320,6 +330,8 @@ class ESN:
         Returns:
             Array of output activations
         """
+        # Convert input
+        inputs = inputs.detach().numpy()
         # Prepare arrays
         if not input_is_looped:
             if inputs.ndim < 2:
@@ -342,6 +354,7 @@ class ESN:
         else:
             input_subarray = np.empty((n_samples, self.n_inputs))
             inputs = np.vstack([lastinput, input_subarray])
+            
         states = np.vstack([laststate, np.zeros((n_samples, self.n_reservoir))])
         outputs = np.vstack([lastoutput, np.zeros((n_samples, self.n_outputs))])
 
@@ -369,4 +382,5 @@ class ESN:
                     np.dot(states[n + 1], self.W_out.T)
                 )
 
-        return outputs
+        # Return till -1 to assure that it has same length as input
+        return outputs[:-1]
