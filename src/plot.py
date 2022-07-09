@@ -30,13 +30,13 @@ def compare_R2scores(net, true_states, time=20):
 
 def plot_trajectory(t, time=None, n_var=3, filename = None, prediction_steps=100, labels=None, color=None):
     ### Plot two trajectories to compare, varaibles against time
-    fig, axs = plt.subplots(figsize=(10,5), ncols=1, nrows=n_var)
+    fig, axs = plt.subplots(figsize=(10,5), ncols=1, nrows=n_var, sharex=True)
     gs = axs[1].get_gridspec()
-        
+    fig.subplots_adjust(hspace=0)
+    
     # Plot dynamic variables
     index = 0
     for ax in axs[0:]:
-        ax.set_xlabel("t")
         if time is None:
             ax.plot(t.detach().cpu().numpy()[:prediction_steps, -1], t.detach().cpu().numpy()[:prediction_steps, index], c=color, lw=0.5)
         else:
@@ -46,13 +46,14 @@ def plot_trajectory(t, time=None, n_var=3, filename = None, prediction_steps=100
 
    
     # Set labels
+    axs[-1].set_xlabel("t")
     for i in range(n_var):
         if labels is None:
             axs[i].set_ylabel("x"+str(i+1))
         else:
             axs[i].set_ylabel(labels[i])
     
-    fig.tight_layout()
+    #fig.tight_layout()
     # Save and return
     if filename is not None:
         plt.savefig(filename)
@@ -61,12 +62,12 @@ def plot_trajectory(t, time=None, n_var=3, filename = None, prediction_steps=100
 
 def compare_trajectories(t1, t2, time=None, n_var=3, filename = None, prediction_steps=100, labels=None, color=None):
     ### Plot two trajectories to compare, varaibles against time
-    fig, axs = plt.subplots(figsize=(10,5), ncols=1, nrows=n_var)
+    fig, axs = plt.subplots(figsize=(10,5), ncols=1, nrows=n_var, sharex=True)
+    fig.subplots_adjust(hspace=0)
     
     # Plot dynamic variables
     index = 0
     for ax in axs[0:]:
-        ax.set_xlabel("t")
         if time is None:
             ax.plot(t1.detach().cpu().numpy()[:prediction_steps, -1], t1.detach().cpu().numpy()[:prediction_steps, index], label="Predicted", c=color, lw=0.5)
             ax.plot(t2.detach().cpu().numpy()[:prediction_steps, -1], t2.detach().cpu().numpy()[:prediction_steps, index], label="Actual", c=color, lw=0.5)
@@ -77,6 +78,7 @@ def compare_trajectories(t1, t2, time=None, n_var=3, filename = None, prediction
         index += 1
     
     # Set labels
+    axs[-1].set_xlabel("t")
     for i in range(n_var):
         if labels is None:
             axs[i].set_ylabel("x"+str(i+1))
@@ -84,7 +86,7 @@ def compare_trajectories(t1, t2, time=None, n_var=3, filename = None, prediction
             axs[i].set_ylabel(labels[i])
         
     
-    fig.tight_layout()
+    #fig.tight_layout()
     # Save and return
     if filename is not None:
         plt.savefig(filename)
@@ -156,13 +158,13 @@ def poincare_plot(states, delay=1, true_states=None, n_var=3, filename=None, pre
 
 def plot_powspec(states, true_states=None, n_var=3, filename=None):
     ### Plot two trajectories to compare, varaibles against time
-    fig, axs = plt.subplots(figsize=(10,5), ncols=1, nrows=n_var)
+    fig, axs = plt.subplots(figsize=(10,5), ncols=1, nrows=n_var, sharex=True)
     gs = axs[1].get_gridspec()
-        
+    fig.subplots_adjust(hspace=0)
+    
     # Plot dynamic variables
     index = 0
     for ax in axs[0:]:
-        ax.set_xlabel("Frequency")
         f, P = signal.periodogram(states.detach().cpu().numpy()[:,index])
         ax.semilogy(f[1:], P[1:], label="Predicted") 
         if true_states is  not None:
@@ -174,10 +176,11 @@ def plot_powspec(states, true_states=None, n_var=3, filename=None):
 
    
     # Set labels
+    axs[-1].set_xlabel("Frequency")
     for i in range(n_var):
         axs[i].set_ylabel("PS of (x"+str(i+1)+")")
     
-    fig.tight_layout()
+    #fig.tight_layout()
     # Save and return
     if filename is not None:
         plt.savefig(filename)

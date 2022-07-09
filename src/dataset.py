@@ -77,7 +77,6 @@ class DynSysDataset(Dataset):
         self.seq_len = seq_len
         self.dt = dt
         self.tau = tau #integer values specifying multiples of time step dt to take
-        self.convolution = convolution
         self.transform = transform
         
         
