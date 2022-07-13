@@ -13,7 +13,7 @@ import utils
 
 class LSTM(pl.LightningModule):  
     def __init__(self, input_size, hidden_units, layers_num, system, true_system, drop_p=0.1,
-                 lr=0.001, dt=0.01, method_name="RK4", use_pi_loss=False, return_rnn=False, perturbation=None, bidirectional=False, train_out=True):
+                 lr=0.001, dt=0.01, method_name="RK4", use_pi_loss=False, return_rnn=False, perturbation=None, bidirectional=False, train_out=True, l1=0.0):
         # Call the parent init function 
         super().__init__()
         # Retrieve parameters
@@ -27,6 +27,8 @@ class LSTM(pl.LightningModule):
         self.true_system = true_system
         self.perturbation = perturbation
         self.train_out = train_out 
+        self.l1 = l1 # L1 regularization weight
+        
         # Define propagation methods (either use physics informed or data driven loss)
         self.method_name = method_name
         self.use_pi_loss = use_pi_loss
@@ -77,15 +79,15 @@ class LSTM(pl.LightningModule):
             # Forward
             next_state = self.forward(batch_idx, state) # Propagated through network
             df = self.method(state) # Differential computeed with true model
-            train_loss = nn.MSELoss()(state+df, next_state)
+            train_loss = nn.MSELoss()(state+df, next_state) + self.l1*sum(p.abs().sum() for p in self.parameters())
         else: 
             ## Data driven loss + possible perturbation
             # Forward
             df = self.method(state) # Differential computed propagating network
             if self.perturbation is None:
-                train_loss = nn.MSELoss()(state+df, labels)
+                train_loss = nn.MSELoss()(state+df, labels) + self.l1*sum(p.abs().sum() for p in self.parameters())
             else:
-                train_loss = nn.MSELoss()(state+df+self.perturbation*self.dt, labels)
+                train_loss = nn.MSELoss()(state+df+self.perturbation*self.dt, labels) + self.l1*sum(p.abs().sum() for p in self.parameters())
       
         # Compute loss between true and learned parameters
         params_loss = np.mean((self.system.params.detach().cpu().numpy()-self.true_system.params.detach().cpu().numpy())**2)
@@ -96,7 +98,7 @@ class LSTM(pl.LightningModule):
         return train_loss
     
     def validation_step(self, batch, batch_idx):
-       ### Prepare network input and labels and first net_out for curriculum learning
+        ### Prepare network input and labels and first net_out for curriculum learning
         state  = batch[:, :-1, :]
         labels = batch[:,1:,:]
         
@@ -105,15 +107,15 @@ class LSTM(pl.LightningModule):
             # Forward
             next_state = self.forward(batch_idx, state) # Propagated through network
             df = self.method(state) # Differential computeed with true model
-            val_loss = nn.MSELoss()(state+df, next_state)
+            val_loss = nn.MSELoss()(state+df, next_state) + self.l1*sum(p.abs().sum() for p in self.parameters())
         else:
             ## Data driven loss + possible perturbation
             df = self.method(state) # Differential computed propagating network
             if self.perturbation is None:
-                val_loss = nn.MSELoss()(state+df, labels)
+                val_loss = nn.MSELoss()(state+df, labels) + self.l1*sum(p.abs().sum() for p in self.parameters())
             else:
-                val_loss = nn.MSELoss()(state+df+self.perturbation*self.dt, labels)
-        
+                val_loss = nn.MSELoss()(state+df+self.perturbation*self.dt, labels) + self.l1*sum(p.abs().sum() for p in self.parameters())
+                
         # Logging to TensorBoard by default
         self.log("val_loss", val_loss, logger=True, on_epoch=True, prog_bar=True)
         self.log("epoch_num", self.current_epoch,prog_bar=True)
@@ -136,10 +138,10 @@ class LSTM(pl.LightningModule):
             raise Exception
         return int(num_timesteps)
         
-    def predict(self, time, input, continuation=False):
+    def predict(self, time, inputs, continuation=False):
         " Generate a trajectory of prediction_steps lenght starting from input. Return torch.tensor"
         prediction_steps = self.num_timesteps(time)
-        state = input[0].unsqueeze(0).unsqueeze(0)
+        state = inputs[0].unsqueeze(0).unsqueeze(0)
         rnn_state = (torch.zeros(self.layers_num, 1,self.hidden_units), torch.zeros(self.layers_num, 1,self.hidden_units))
         net_states = []
         self.eval()
@@ -273,49 +275,169 @@ class Transformer(pl.LightningModule):
     
 class FFNet(pl.LightningModule):
 
-    def __init__(self, params):
+    def __init__(self, seq_len, n_inputs, n_outputs, hidden_layers, system, true_system, drop_p=0.3, lr=0.001, dt=0.01, 
+                method_name="RK4", use_pi_loss=False):
         """
         Initialize a typical feedforward network with different hidden layers
-        The input is typically a mnist image, given as a torch tensor of size = (1,784)
-         ----------
-        Parameters:
-        layers_sizes = list of sizes of the hidden layers, the first is the visible layer and the last is the output layer
-
+        The input is typically a mnist image, given as a torch tensor of size = (1,784),
+        or a sequence, torch.tensor of size (1, seq_length, 3)
+        ----------
+        Args:
+        n_inputs = input features
+        n_outputs = output features
+        hidden_layers = list of sizes of the hidden layers
+        drop_p = dropout probability
+        lr = learning rate
         """
-
         super().__init__()
-
         # Parameters
-        self.layers_sizes = params["layers_sizes"]
-        self.num_layers = len(self.layers_sizes)
-        self.act = params["act"]
-        self.drop_p = params["drop_p"]
+        self.seq_len = seq_len
+        self.n_inputs = n_inputs
+        self.n_outputs = n_outputs
+        self.hidden_layers = hidden_layers
+        self.num_hidden_layers = len(self.hidden_layers)
+        self.drop_p = drop_p
+        self.lr = lr
+        self.dt = dt
+        self.system = system
+        self.true_system = true_system
         
-        # Network architecture
+        # Define propagation methods (either use physics informed or data driven loss)
+        self.method_name = method_name
+        self.use_pi_loss = use_pi_loss
+        if self.use_pi_loss:
+            # Physical informed loss
+            self.method = getattr(utils, self.method_name)(self.dt, model=system.forward)
+        else:
+            # Dat driven loss
+            self.method = getattr(utils, self.method_name)(self.dt, model=self.forward)
+        
+        ### Network architecture
         layers = []
-        for l in range(self.num_layers-2):
-            layers.append(nn.Linear(in_features = self.layers_sizes[l], out_features = self.layers_sizes[l+1]))
-            layers.append(nn.Dropout(self.drop_p, inplace = False))
-            layers.append(self.act)
         
-        layers.append(nn.Linear(in_features = self.layers_sizes[self.num_layers-2], out_features = self.layers_sizes[self.num_layers-1]))
+        # input layer
+        layers.append(nn.Linear((self.seq_len-1)*self.n_inputs, self.hidden_layers[0]))
+        layers.append(nn.Dropout(self.drop_p, inplace = False))
+        layers.append(nn.ReLU())
+        
+        # hidden layers
+        for l in range(self.num_hidden_layers-1):
+            layers.append(nn.Linear(self.hidden_layers[l], self.hidden_layers[l+1]))
+            layers.append(nn.Dropout(self.drop_p, inplace = False))
+            layers.append(nn.ReLU())
+        
+        # output layer
+        layers.append(nn.Linear(self.hidden_layers[-1], (self.seq_len-1)*self.n_outputs))
         
         self.layers = nn.ModuleList(layers)
                           
-        print("Feedforward network initialized")
+        print("Feedforward Network initialized")
                   
 
-    def forward(self, x):
-
+    def forward(self, t, x):
+        """
+        Input tensor of size (batch_size, features)
+        """
         for l in range(len(self.layers)):
-            layer = self.layers[l]
-            x = layer(x)
- 
+            x = self.layers[l](x)
+
         return x
 
-
-
+    def training_step(self, batch, batch_idx):
+        """
+        Input is dataloader output, a tensor of size (batch_size, seq_length, feature_dim) 
+        that must be flattened in last dimensions to get a tensor of size (batch_size, seq_length*feature_dim)
+        """
+        ### Prepare network input and labels and flatten last dimension 
+        state  = batch[:, :-1, :]
+        state_flat = torch.flatten(state, start_dim=1)
+        labels = batch[:, 1:,:]
+        labels_flat = torch.flatten(labels, start_dim=1)
+        
+        if self.use_pi_loss:
+            ## Physical informed loss
+            # Forward
+            next_state = self.forward(batch_idx, state_flat) # Propagated through network (already flat)
+            df = self.method(state) # Differential computed with true model
+            df_flat = torch.flatten(df, start_dim=1)
+            train_loss = nn.MSELoss()(state_flat+df_flat, next_state)
+        else: 
+            ## Data driven loss 
+            # Forward
+            df_flat = self.method(state_flat) # Differential computed propagating network
+            train_loss = nn.MSELoss()(state_flat+df_flat, labels_flat)
+           
+      
+        # Compute loss between true and learned parameters
+        params_loss = np.mean((self.system.params.detach().cpu().numpy()-self.true_system.params.detach().cpu().numpy())**2)
+        self.log("params_loss", params_loss, prog_bar=True)
+        
+        # Logging to TensorBoard by default
+        self.log("train_loss", train_loss, prog_bar=True)
+        return train_loss
     
+    def validation_step(self, batch, batch_idx):
+        """
+        Input is dataloader output, a tensor of size (batch_size, seq_length, feature_dim) 
+        that must be flattened in last dimensions to get a tensor of size (batch_size, seq_length*feature_dim)
+        """
+        ### Prepare network input and labels and flatten last dimension 
+        state  = batch[:, :-1, :]
+        state_flat = torch.flatten(state, start_dim=1)
+        labels = batch[:, 1:,:]
+        labels_flat = torch.flatten(labels, start_dim=1)
+        
+        if self.use_pi_loss:
+            ## Physical informed loss
+            # Forward
+            next_state = self.forward(batch_idx, state_flat) # Propagated through network
+            df = self.method(state) # Differential computeed with true model
+            df_flat = torch.flatten(df, start_dim=1)
+            val_loss = nn.MSELoss()(state_flat+df_flat, next_state)
+        else:
+            ## Data driven loss 
+            # Forward
+            df_flat = self.method(state_flat) # Differential computed propagating network
+            val_loss = nn.MSELoss()(state_flat+df_flat, labels_flat)
+            
+                      
+        # Logging to TensorBoard by default
+        self.log("val_loss", val_loss, logger=True, on_epoch=True, prog_bar=True)
+        self.log("epoch_num", self.current_epoch,prog_bar=True)
+        return val_loss
+        
+    def configure_optimizers(self):
+        optimizer = optim.Adam(self.parameters(), lr = self.lr)
+        return optimizer
+
+    def num_timesteps(self, time):
+        """Returns the number of timesteps required to pass time time.
+        Raises an error if timestep value does not divide length time.
+        """
+        num_timesteps = time / self.dt
+        if not num_timesteps.is_integer():
+            raise Exception
+        return int(num_timesteps)
+    
+    def predict(self, time, inputs, continuation=False):
+        " Generate a trajectory of prediction_steps lenght starting from inputs. Return torch.tensor"
+        prediction_steps = self.num_timesteps(time)
+        net_states = [inputs[0].detach().cpu().numpy().tolist()] # first element is first of inputs
+        state = torch.reshape(inputs[:self.seq_len-1,:], (1,(self.seq_len-1)*self.n_inputs)) # define first state
+        self.eval()
+        # run an interation and save first elements
+        with torch.no_grad(): 
+            state = self(0, state)
+            
+        for i in torch.reshape(state[0], (self.seq_len-1, self.n_inputs)):
+            net_states.append(i.detach().cpu().numpy().tolist())
+        
+        for i in range(prediction_steps-self.seq_len):
+            with torch.no_grad():           
+                state = self(i, state)
+                net_states.append(torch.reshape(state[0], (self.seq_len-1, self.n_inputs))[-1,:].detach().cpu().numpy().tolist())
+                
+        return torch.tensor(np.array(net_states))
         
         
         

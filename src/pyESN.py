@@ -346,8 +346,8 @@ class ESN:
             lastoutput = self.lastoutput
         else:
             laststate = np.zeros(self.n_reservoir)
-            lastinput = np.zeros(self.n_inputs)
-            lastoutput = np.zeros(self.n_outputs)
+            lastinput = inputs[0]
+            lastoutput = inputs[1]
 
         if not input_is_looped:
             inputs = np.vstack([lastinput, self._scale_inputs(inputs)])

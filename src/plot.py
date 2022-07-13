@@ -111,14 +111,15 @@ def plot_3Dtrajectory(net_states, var=[0,1,2], filename=None, color=None, labels
     
     
     if color is not None:
-        ax.scatter(net_states.detach().cpu().numpy()[:,var[0]], net_states.detach().cpu().numpy()[:,var[1]], net_states.detach().cpu().numpy()[:,var[2]], cmap = "RdBu_r", s=0.1, c=color)
+        plot = ax.scatter(net_states.detach().cpu().numpy()[:,var[0]], net_states.detach().cpu().numpy()[:,var[1]], net_states.detach().cpu().numpy()[:,var[2]], cmap = "RdBu_r", s=0.1, c=color)
     else:
         ax.plot(net_states.detach().cpu().numpy()[:,var[0]], net_states.detach().cpu().numpy()[:,var[1]], net_states.detach().cpu().numpy()[:,var[2]], lw=0.1)
         
     ax.legend()
     
     if color is not None:
-        fig.colorbar(cm.ScalarMappable( cmap="RdBu_r"), ax=ax)
+        ax.figure.colorbar(plot, ax=ax)
+        
 
     fig.tight_layout()
     # Save and return
@@ -229,7 +230,7 @@ def plot_params_distr(enc, plot_stat=False, true_params=None, labels=None, bins=
         statistics.append([mean, std])
         
         # Plot histogram and show mean and std
-        ax.hist(enc.detach().cpu().numpy()[:,index], bins=bins, density=True, label="$\mu$="+str(mean)+","+"$\sigma$="+str(std), range=range)
+        ax.hist(enc.detach().cpu().numpy()[:,index], bins=bins, density=True, range=range)
         if plot_stat:
             ax.axvspan(mean-std, mean+std, alpha=0.3, color='red')
             ax.axvline(x=mean, c="red", lw=2, ls="--")
