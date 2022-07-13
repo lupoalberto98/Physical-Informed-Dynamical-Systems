@@ -276,7 +276,7 @@ class Transformer(pl.LightningModule):
 class FFNet(pl.LightningModule):
 
     def __init__(self, seq_len, n_inputs, n_outputs, hidden_layers, system, true_system, drop_p=0.3, lr=0.001, dt=0.01, 
-                method_name="RK4", use_pi_loss=False):
+                method_name="RK4", use_pi_loss=False, l1=0.0):
         """
         Initialize a typical feedforward network with different hidden layers
         The input is typically a mnist image, given as a torch tensor of size = (1,784),
@@ -301,6 +301,7 @@ class FFNet(pl.LightningModule):
         self.dt = dt
         self.system = system
         self.true_system = true_system
+        self.l1 = l1 # L1 regularization weight
         
         # Define propagation methods (either use physics informed or data driven loss)
         self.method_name = method_name
@@ -360,12 +361,12 @@ class FFNet(pl.LightningModule):
             next_state = self.forward(batch_idx, state_flat) # Propagated through network (already flat)
             df = self.method(state) # Differential computed with true model
             df_flat = torch.flatten(df, start_dim=1)
-            train_loss = nn.MSELoss()(state_flat+df_flat, next_state)
+            train_loss = nn.MSELoss()(state_flat+df_flat, next_state) + self.l1*sum(p.abs().sum() for p in self.parameters())
         else: 
             ## Data driven loss 
             # Forward
             df_flat = self.method(state_flat) # Differential computed propagating network
-            train_loss = nn.MSELoss()(state_flat+df_flat, labels_flat)
+            train_loss = nn.MSELoss()(state_flat+df_flat, labels_flat) + self.l1*sum(p.abs().sum() for p in self.parameters())
            
       
         # Compute loss between true and learned parameters
@@ -393,12 +394,12 @@ class FFNet(pl.LightningModule):
             next_state = self.forward(batch_idx, state_flat) # Propagated through network
             df = self.method(state) # Differential computeed with true model
             df_flat = torch.flatten(df, start_dim=1)
-            val_loss = nn.MSELoss()(state_flat+df_flat, next_state)
+            val_loss = nn.MSELoss()(state_flat+df_flat, next_state) + self.l1*sum(p.abs().sum() for p in self.parameters())
         else:
             ## Data driven loss 
             # Forward
             df_flat = self.method(state_flat) # Differential computed propagating network
-            val_loss = nn.MSELoss()(state_flat+df_flat, labels_flat)
+            val_loss = nn.MSELoss()(state_flat+df_flat, labels_flat) + self.l1*sum(p.abs().sum() for p in self.parameters())
             
                       
         # Logging to TensorBoard by default
