@@ -34,11 +34,12 @@ class LSTM(pl.LightningModule):
         self.use_pi_loss = use_pi_loss
         if self.use_pi_loss:
             # Physical informed loss
-            self.method = getattr(utils, self.method_name)(self.dt, model=system.forward)
+            self.method = getattr(utils, self.method_name)(self.dt, model=system)
         else:
             # Dat driven loss
-            self.method = getattr(utils, self.method_name)(self.dt, model=self.forward)
+            self.method = getattr(utils, self.method_name)(self.dt, model=self)
             
+        
         # Add system parameters to computational graph
         #self.register_parameter(name="params", param=nn.Parameter(self.system.params))
                                                      
@@ -55,6 +56,8 @@ class LSTM(pl.LightningModule):
         # Define output layer
         self.out = nn.Linear(self.hidden_units, self.input_size)
         print("LSTM initialized")
+        
+        
 
         
     def forward(self,t, x, rnn_state=None):
@@ -131,7 +134,8 @@ class LSTM(pl.LightningModule):
     
     def num_timesteps(self, time):
         """Returns the number of timesteps required to pass time time.
-        Raises an error if timestep value does not divide length time.
+        Args:
+            time : total time elapsed, to be divided by dt to get num_timesteps
         """
         num_timesteps = time / self.dt
         if not num_timesteps.is_integer():
@@ -139,7 +143,13 @@ class LSTM(pl.LightningModule):
         return int(num_timesteps)
         
     def predict(self, time, inputs, continuation=False):
-        " Generate a trajectory of prediction_steps lenght starting from input. Return torch.tensor"
+        """
+        Generate a trajectory of prediction_steps lenght starting from inputs
+        Args:
+            time : total time elapsed, to be divided by dt to get num_timesteps
+            inputs : dataset to be compared, torch.tensor of size (num_points, dim)
+            input_is_looped: if True, the output is fed into the network as an input at the next step
+        """
         prediction_steps = self.num_timesteps(time)
         state = inputs[0].unsqueeze(0).unsqueeze(0)
         rnn_state = (torch.zeros(self.layers_num, 1,self.hidden_units), torch.zeros(self.layers_num, 1,self.hidden_units))
@@ -154,129 +164,14 @@ class LSTM(pl.LightningModule):
            
         return torch.tensor(np.array(net_states))
 
-class PositionalEncoding(nn.Module):
-    def __init__(self, dim_model, dropout_p, max_len):
-        super().__init__()
-        # Modified version from: https://pytorch.org/tutorials/beginner/transformer_tutorial.html
-        # max_len determines how far the position can have an effect on a token (window)
-        
-        # Info
-        self.dropout = nn.Dropout(dropout_p)
-        
-        # Encoding - From formula
-        pos_encoding = torch.zeros(max_len, dim_model)
-        positions_list = torch.arange(0, max_len, dtype=torch.float).view(-1, 1) # 0, 1, 2, 3, 4, 5
-        division_term = torch.exp(torch.arange(0, dim_model, 1).float() * (-math.log(10000.0)) / dim_model) # 1000^(2i/dim_model)
-        
-        # PE(pos, 2i) = sin(pos/1000^(2i/dim_model))
-        pos_encoding[:, 0::2] = torch.sin(positions_list * division_term)[:,0::2]
-        
-        # PE(pos, 2i + 1) = cos(pos/1000^(2i/dim_model))
-        pos_encoding[:, 1::2] = torch.cos(positions_list * division_term)[:,1::2]
-        
-        # Saving buffer (same as parameter without gradients needed)
-        pos_encoding = pos_encoding.unsqueeze(0)
-        self.register_buffer("pos_encoding",pos_encoding)
-        
-    def forward(self, token_embedding):
-        # Residual connection + pos encoding
-        return self.dropout(token_embedding + self.pos_encoding[:,:token_embedding.shape[1], :])
-
 
         
-class Transformer(pl.LightningModule):
-    " Tranformer for sequence generation"
-    def __init__(self, params):
-        # Initialize parent class
-        super().__init__()
-        # Retrieve parameters
-        self.d_model = params["d_model"]
-        self.nhead = params["nhead"]
-        self.num_encoder_layers = params["num_encoder_layers"]
-        self.num_decoder_layers = params["num_decoder_layers"]
-        self.dim_feedforward = params["dim_feedforward"]
-        self.dropout = params["dropout"]
-        self.activation = params["activation"]
-        self.loss_fn = params["loss_fn"]
-        self.lr = params["lr"]
-        self.src_mask = None
-        self.tgt_mask = None
-        self.apply_src_mask = params["apply_src_mask"]
-        self.apply_tgt_mask = params["apply_tgt_mask"]
-        
-        # Positional encoder
-        self.positional_encoder = PositionalEncoding(
-            dim_model=self.d_model, dropout_p=self.dropout, max_len=5000
-        )
-        # Transoformer
-        self.transformer = nn.Transformer(d_model=self.d_model, nhead=self.nhead, num_encoder_layers=self.num_encoder_layers, 
-                                          num_decoder_layers=self.num_decoder_layers, dim_feedforward=self.dim_feedforward, 
-                                          dropout=self.dropout, activation=self.activation, batch_first=True)
-        # Define output layer
-        self.output = nn.Linear(self.d_model, self.d_model)
-        print("Network initialized")
-        
-    def get_tgt_mask(self, size):
-        # Generates a squeare matrix where the each row allows one word more to be seen
-        mask = torch.tril(torch.ones(size, size) == 1) # Lower triangular matrix
-        mask = mask.float()
-        mask = mask.masked_fill(mask == 0, float('-inf')) # Convert zeros to -inf
-        mask = mask.masked_fill(mask == 1, float(0.0)) # Convert ones to 0
-        return mask
-    
-    def forward(self, src, tgt, src_mask=None, tgt_mask=None):
-        # Positional encoding
-        src = self.positional_encoder(src)
-        tgt = self.positional_encoder(tgt)
-        # Transformer step
-        out = self.transformer(src, tgt, src_mask, tgt_mask)
-        # Output layer
-        out = self.output(out)
-        return out
-    
-    
-    def training_step(self, batch, batch_idx):
-        ### Prepare network input and labels and first net_out for curriculum learning
-        state  = batch[:, :-1, :]
-        labels = batch[:, 1:, :]
-        # Apply masks
-        if self.apply_tgt_mask:
-            self.tgt_mask = self.get_tgt_mask(size=state.shape[1]).to(self.device)
-        if self.apply_src_mask:
-            self.src_mask = self.get_tgt_mask(size=state.shape[1]).to(self.device)
-        # Forward pass
-        next_state = self.forward(state, labels, self.src_mask, self.tgt_mask)
-        # Compute loss
-        train_loss = self.loss_fn(state, next_state)
-        # Logging to TensorBoard by default
-        self.log("train_loss", train_loss, prog_bar=True)
-        return train_loss
-    
-    def validation_step(self, batch, batch_idx):
-        ### Prepare network input and labels and first net_out for curriculum learning
-        state  = batch[:, :-1, :]
-        labels = batch[:, 1:, :]
-        # Apply masks
-        if self.apply_tgt_mask:
-            self.tgt_mask = self.get_tgt_mask(size=state.shape[1]).to(self.device)
-        if self.apply_src_mask:
-            self.src_mask = self.get_tgt_mask(size=state.shape[1]).to(self.device)
-        # Forward pass
-        next_state = self.forward(state, labels, self.src_mask, self.tgt_mask)
-        # Compute loss
-        val_loss = self.loss_fn(state, next_state)
-        # Logging to TensorBoard by default
-        self.log("val_loss", val_loss, prog_bar=True)
-        return val_loss
-    
-    def configure_optimizers(self):
-        optimizer = optim.Adam(self.parameters(), lr = self.lr)
-        return optimizer
+
     
 class FFNet(pl.LightningModule):
 
-    def __init__(self, seq_len, n_inputs, n_outputs, hidden_layers, system, true_system, drop_p=0.3, lr=0.001, dt=0.01, 
-                method_name="RK4", use_pi_loss=False, l1=0.0):
+    def __init__(self, seq_len, n_inputs, n_outputs, hidden_layers, system, true_system, drop_p=0.3, lr=0.001, dt=0.002, 
+                method_name="RK4", activation="ReLU", use_pi_loss=False, l1=0.0):
         """
         Initialize a typical feedforward network with different hidden layers
         The input is typically a mnist image, given as a torch tensor of size = (1,784),
@@ -299,6 +194,7 @@ class FFNet(pl.LightningModule):
         self.drop_p = drop_p
         self.lr = lr
         self.dt = dt
+        self.activation = getattr(nn, activation)()
         self.system = system
         self.true_system = true_system
         self.l1 = l1 # L1 regularization weight
@@ -319,13 +215,13 @@ class FFNet(pl.LightningModule):
         # input layer
         layers.append(nn.Linear((self.seq_len-1)*self.n_inputs, self.hidden_layers[0]))
         layers.append(nn.Dropout(self.drop_p, inplace = False))
-        layers.append(nn.ReLU())
+        layers.append(self.activation)
         
         # hidden layers
         for l in range(self.num_hidden_layers-1):
             layers.append(nn.Linear(self.hidden_layers[l], self.hidden_layers[l+1]))
             layers.append(nn.Dropout(self.drop_p, inplace = False))
-            layers.append(nn.ReLU())
+            layers.append(self.activation)
         
         # output layer
         layers.append(nn.Linear(self.hidden_layers[-1], (self.seq_len-1)*self.n_outputs))
@@ -358,10 +254,11 @@ class FFNet(pl.LightningModule):
         if self.use_pi_loss:
             ## Physical informed loss
             # Forward
-            next_state = self.forward(batch_idx, state_flat) # Propagated through network (already flat)
+            next_state_flat = self.forward(batch_idx, state_flat) # Propagated through network (already flat)
+            next_state = torch.reshape(next_state_flat, (-1,self.seq_len-1, self.n_inputs))
             df = self.method(state) # Differential computed with true model
-            df_flat = torch.flatten(df, start_dim=1)
-            train_loss = nn.MSELoss()(state_flat+df_flat, next_state) + self.l1*sum(p.abs().sum() for p in self.parameters())
+            #df_flat = torch.flatten(df, start_dim=1)
+            train_loss = nn.MSELoss()(state+df, next_state) + self.l1*sum(p.abs().sum() for p in self.parameters())
         else: 
             ## Data driven loss 
             # Forward
@@ -391,10 +288,11 @@ class FFNet(pl.LightningModule):
         if self.use_pi_loss:
             ## Physical informed loss
             # Forward
-            next_state = self.forward(batch_idx, state_flat) # Propagated through network
-            df = self.method(state) # Differential computeed with true model
-            df_flat = torch.flatten(df, start_dim=1)
-            val_loss = nn.MSELoss()(state_flat+df_flat, next_state) + self.l1*sum(p.abs().sum() for p in self.parameters())
+            next_state_flat = self.forward(batch_idx, state_flat) # Propagated through network (already flat)
+            next_state = torch.reshape(next_state_flat, (-1,self.seq_len-1, self.n_inputs))
+            df = self.method(state) # Differential computed with true model
+            #df_flat = torch.flatten(df, start_dim=1)
+            val_loss = nn.MSELoss()(state+df, next_state) + self.l1*sum(p.abs().sum() for p in self.parameters())
         else:
             ## Data driven loss 
             # Forward
@@ -413,31 +311,42 @@ class FFNet(pl.LightningModule):
 
     def num_timesteps(self, time):
         """Returns the number of timesteps required to pass time time.
-        Raises an error if timestep value does not divide length time.
+        Args:
+            time : total time elapsed, to be divided by dt to get num_timesteps
         """
         num_timesteps = time / self.dt
         if not num_timesteps.is_integer():
             raise Exception
         return int(num_timesteps)
     
-    def predict(self, time, inputs, continuation=False):
-        " Generate a trajectory of prediction_steps lenght starting from inputs. Return torch.tensor"
+    def predict(self, time, inputs, input_is_looped=True):
+        """
+        Generate a trajectory of prediction_steps lenght starting from inputs
+        Args:
+            time : total time elapsed, to be divided by dt to get num_timesteps
+            inputs : dataset to be compared, torch.tensor of size (num_points, dim)
+            input_is_looped: if True, the output is fed into the network as an input at the next step
+        """
         prediction_steps = self.num_timesteps(time)
         net_states = [inputs[0].detach().cpu().numpy().tolist()] # first element is first of inputs
-        state = torch.reshape(inputs[:self.seq_len-1,:], (1,(self.seq_len-1)*self.n_inputs)) # define first state
+        state = torch.flatten(inputs[:self.seq_len-1,:]).unsqueeze(0) # define first state
         self.eval()
         # run an interation and save first elements
         with torch.no_grad(): 
             state = self(0, state)
-            
-        for i in torch.reshape(state[0], (self.seq_len-1, self.n_inputs)):
-            net_states.append(i.detach().cpu().numpy().tolist())
-        
-        for i in range(prediction_steps-self.seq_len):
-            with torch.no_grad():           
-                state = self(i, state)
-                net_states.append(torch.reshape(state[0], (self.seq_len-1, self.n_inputs))[-1,:].detach().cpu().numpy().tolist())
+            for i in range(self.seq_len-1):
+                net_states.append(torch.reshape(state, (self.seq_len-1, self.n_inputs))[i].detach().cpu().numpy().tolist())
                 
+        # run all the other iterations
+        for i in range(prediction_steps-self.seq_len):
+            with torch.no_grad():
+                if input_is_looped:
+                    state = self(0, state)
+                    net_states.append(state[0, -self.n_inputs::].detach().cpu().numpy().tolist())
+                else:
+                    state = self(0, torch.flatten(inputs[i:i+self.seq_len-1,:]).unsqueeze(0))
+                    net_states.append(state[0, -self.n_inputs::].detach().cpu().numpy().tolist())
+                    
         return torch.tensor(np.array(net_states))
         
         

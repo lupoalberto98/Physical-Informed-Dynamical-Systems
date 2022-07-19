@@ -339,3 +339,12 @@ class CVAE(pl.LightningModule):
         optimizer = optim.Adam(self.parameters(), lr = self.lr)
         return optimizer
     
+    
+    def num_timesteps(self, time):
+        """Returns the number of timesteps required to pass time time.
+        Raises an error if timestep value does not divide length time.
+        """
+        num_timesteps = time / self.dt
+        if not num_timesteps.is_integer():
+            raise Exception
+        return int(num_timesteps)

@@ -383,4 +383,4 @@ class ESN:
                 )
 
         # Return till -1 to assure that it has same length as input
-        return outputs[:-1]
+        return torch.tensor(np.array(outputs[:-1]))

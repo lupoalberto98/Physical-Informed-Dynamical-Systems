@@ -215,7 +215,7 @@ class ConvAE(pl.LightningModule):
         else:
             warnings.warn("No encoded space regualarization used")
         
-    def forward(self, x):
+    def forward(self, t, x):
         # Encode data and keep track of indexes
         enc, indeces_1, indeces_2, indeces_3 = self.encoder(x)
         # Decode data
@@ -232,7 +232,7 @@ class ConvAE(pl.LightningModule):
         # Set reg loss to zero
         reg_loss = 0
         # Forward step
-        enc_state, rec_state = self.forward(state)
+        enc_state, rec_state = self.forward(batch_idx, state)
         # Compute reconstruction loss
         rec_loss = nn.MSELoss()(rec_state, state)
         
@@ -268,7 +268,7 @@ class ConvAE(pl.LightningModule):
         # Set reg loss to zero
         reg_loss = 0
         # Forward step
-        enc_state, rec_state = self.forward(state)
+        enc_state, rec_state = self.forward(batch_idx, state)
         # Compute reconstruction loss
         rec_loss = nn.MSELoss()(rec_state, state)
         
@@ -297,4 +297,45 @@ class ConvAE(pl.LightningModule):
         self.lr_scheduler = getattr(optim.lr_scheduler, self.lr_scheduler_name)(optimizer, self.gamma)
         return optimizer
     
+    def num_timesteps(self, time):
+        """Returns the number of timesteps required to pass time time.
+        Args:
+            time : total time elapsed, to be divided by dt to get num_timesteps
+        """
+        num_timesteps = time / self.dt
+        if not num_timesteps.is_integer():
+            raise Exception
+        return int(num_timesteps)
     
+
+    def predict(self, time, inputs, input_is_looped=True):
+        """
+        Generate a trajectory of prediction_steps lenght starting from inputs
+        Args:
+            time : total time elapsed, to be divided by dt to get num_timesteps
+            inputs : dataset to be compared, torch.tensor of size (num_points, dim)
+            input_is_looped: if True, the output is fed into the network as an input at the next step
+        """
+        prediction_steps = self.num_timesteps(time)
+        net_states = [inputs[0].detach().cpu().numpy().tolist()] # first element is first of inputs
+        state = inputs[:self.seq_len-1,:].unsqueeze(0).unsqueeze(0) # define first state
+        self.eval()
+        
+        # run an interation and save first elements
+        with torch.no_grad(): 
+            _, state = self(0, state)
+            for i in range(self.seq_len-1):
+                net_states.append(state[0,0,i].detach().cpu().numpy().tolist())
+                
+        
+        # run all the other iterations
+        for i in range(prediction_steps-self.seq_len):
+            with torch.no_grad(): 
+                if input_is_looped:
+                    _, state = self(0, state)
+                    net_states.append(state[0,0,-1,:].detach().cpu().numpy().tolist())
+                else:
+                    _, state = self(0, inputs[i:i+self.seq_len-1,:].unsqueeze(0).unsqueeze(0))
+                    net_states.append(state[0,0,-1,:].detach().cpu().numpy().tolist())
+                
+        return torch.tensor(np.array(net_states))

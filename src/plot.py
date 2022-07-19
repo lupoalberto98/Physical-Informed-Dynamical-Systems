@@ -21,8 +21,7 @@ def compare_R2scores(net, true_states, time=20):
     r2_scores = []
     prediction_steps = net.num_timesteps(time)
     for i in range(seq_length-prediction_steps):
-        states = net.predict(time, true_states[i:i+prediction_steps], continuation=False)
-        states = torch.tensor(states)
+        states = net.predict(time, true_states[i:i+prediction_steps], input_is_looped=True)
         r2_scores.append(r2_score(true_states[i:i+prediction_steps,:].detach().cpu().numpy(), states.detach().cpu().numpy(), multioutput="raw_values"))
     
     return np.array(r2_scores)

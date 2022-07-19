@@ -183,7 +183,7 @@ class Lorenz96(nn.Module):
     
     
 # Loss classes
-class Eul(nn.Module):
+class Eul():
     """
     Compute forward pass with Euler scheme
     Args:
@@ -191,11 +191,10 @@ class Eul(nn.Module):
     if time_included, time is carried as last element of input vector
     """
     def __init__(self, dt, model):
-        super(Eul, self).__init__()
         self.dt = dt
         self.model = model # callable object o nn.Module subclass
 
-    def forward(self, state):
+    def __call__(self, state):
         """
         If state and next_state are the ground truth, then model is the NN ansatz.
         Else, if next_state is the NN forwarded, then model should be the ground truth
@@ -206,16 +205,15 @@ class Eul(nn.Module):
         
         return df
     
-class RK4(nn.Module):
+class RK4():
     """
     Implement a 4th order Runge-Kutta method to compute loss
     """
     def __init__(self, dt, model):
-        super(RK4, self).__init__()
         self.dt = dt
         self.model = model # callable object o nn.Module subclass
         
-    def forward(self, state):
+    def __call__(self, state):
         """
         If state and next_state are the ground truth, then model is the NN ansatz.
         Else, if next_state is the NN forwarded, then model should be the ground truth
