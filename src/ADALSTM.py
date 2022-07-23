@@ -8,7 +8,8 @@ import torch.optim as optim
 from utils import Sampler, nKLDivLoss
 import numpy as np
 import math
-from models import FFNet, LSTM
+from LSTM import LSTM
+from FFNet import FFNet
 import utils
 import warnings
 from models import LSTM
