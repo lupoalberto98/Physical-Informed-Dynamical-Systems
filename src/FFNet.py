@@ -105,7 +105,6 @@ class FFNet(pl.LightningModule):
         else: 
             ## Data driven loss 
             # Forward
-            self.method = getattr(utils, self.method_name)(self.dt, model=self.forward)
             df_flat = self.method(state_flat) # Differential computed propagating network
             train_loss = nn.MSELoss()(state_flat+df_flat, labels_flat) + self.l1*sum(p.abs().sum() for p in self.parameters())
            
@@ -140,7 +139,6 @@ class FFNet(pl.LightningModule):
         else:
             ## Data driven loss 
             # Forward
-            self.method = getattr(utils, self.method_name)(self.dt, model=self.forward)
             df_flat = self.method(state_flat) # Differential computed propagating network
             val_loss = nn.MSELoss()(state_flat+df_flat, labels_flat) + self.l1*sum(p.abs().sum() for p in self.parameters())
             

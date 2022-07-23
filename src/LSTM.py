@@ -13,7 +13,7 @@ import utils
 
 class LSTM(pl.LightningModule):  
     def __init__(self, input_size, hidden_units, layers_num, system, true_system, drop_p=0.1,
-                 lr=0.001, dt=0.01, method_name="RK4", use_pi_loss=False, return_rnn=False, perturbation=None, bidirectional=False, train_out=True, l1=0.0, weight_decay=0.0):
+                 lr=0.001, dt=0.01, method_name="RK4", use_pi_loss=False, int_mode=True, return_rnn=False, perturbation=None, bidirectional=False, train_out=True, l1=0.0, weight_decay=0.0):
         # Call the parent init function 
         super().__init__()
         # Retrieve parameters
@@ -33,13 +33,19 @@ class LSTM(pl.LightningModule):
         # Define propagation methods (either use physics informed or data driven loss)
         self.method_name = method_name
         self.use_pi_loss = use_pi_loss
+        self.int_mode = int_mode # if True, net is integrator, else it is the derivative function
         if self.use_pi_loss:
             # Physical informed loss
+            if self.int_mode is False:
+                warnings.warn("Set integrator mode True")
+                self.int_mode = True
+                
             self.method = getattr(utils, self.method_name)(self.dt, model=system)
         else:
-            # Dat driven loss
-            self.method = getattr(utils, self.method_name)(self.dt, model=self)
-            
+            # Data driven loss
+            if self.int_mode is False:
+                self.method = getattr(utils, self.method_name)(self.dt, model=self)
+        
         
         # Add system parameters to computational graph
         #self.register_parameter(name="params", param=nn.Parameter(self.system.params))
@@ -87,12 +93,17 @@ class LSTM(pl.LightningModule):
         else: 
             ## Data driven loss + possible perturbation
             # Forward
-            self.method = getattr(utils, self.method_name)(self.dt, model=self.forward)
-            df = self.method(state) # Differential computed propagating network
-            if self.perturbation is None:
-                train_loss = nn.MSELoss()(state+df, labels) + self.l1*sum(p.abs().sum() for p in self.parameters())
+            if self.int_mode:
+                # act as integrator
+                next_state = self.forward(batch_idx, state)
+                train_loss = nn.MSELoss()(next_state, labels) + self.l1*sum(p.abs().sum() for p in self.parameters())
             else:
-                train_loss = nn.MSELoss()(state+df+self.perturbation*self.dt, labels) + self.l1*sum(p.abs().sum() for p in self.parameters())
+                # act as derivator
+                df = self.method(state) # Differential computed propagating network
+                if self.perturbation is None:
+                    train_loss = nn.MSELoss()(state+df, labels) + self.l1*sum(p.abs().sum() for p in self.parameters())
+                else:
+                    train_loss = nn.MSELoss()(state+df+self.perturbation*self.dt, labels) + self.l1*sum(p.abs().sum() for p in self.parameters())
       
         # Compute loss between true and learned parameters
         params_loss = np.mean((self.system.params.detach().cpu().numpy()-self.true_system.params.detach().cpu().numpy())**2)
@@ -115,12 +126,17 @@ class LSTM(pl.LightningModule):
             val_loss = nn.MSELoss()(state+df, next_state) + self.l1*sum(p.abs().sum() for p in self.parameters())
         else:
             ## Data driven loss + possible perturbation
-            self.method = getattr(utils, self.method_name)(self.dt, model=self.forward)
-            df = self.method(state) # Differential computed propagating network
-            if self.perturbation is None:
-                val_loss = nn.MSELoss()(state+df, labels) + self.l1*sum(p.abs().sum() for p in self.parameters())
+            if self.int_mode:
+                # act as integrator
+                next_state = self.forward(batch_idx, state)
+                val_loss = nn.MSELoss()(next_state, labels) + self.l1*sum(p.abs().sum() for p in self.parameters())
             else:
-                val_loss = nn.MSELoss()(state+df+self.perturbation*self.dt, labels) + self.l1*sum(p.abs().sum() for p in self.parameters())
+                # act as derivator
+                df = self.method(state) # Differential computed propagating network
+                if self.perturbation is None:
+                    val_loss = nn.MSELoss()(state+df, labels) + self.l1*sum(p.abs().sum() for p in self.parameters())
+                else:
+                    val_loss = nn.MSELoss()(state+df+self.perturbation*self.dt, labels) + self.l1*sum(p.abs().sum() for p in self.parameters())
                 
         # Logging to TensorBoard by default
         self.log("val_loss", val_loss, logger=True, on_epoch=True, prog_bar=True)
@@ -164,13 +180,13 @@ class LSTM(pl.LightningModule):
             with torch.no_grad():
                 net_states.append(state[-1].squeeze().numpy())
                 if input_is_looped:
-                    if self.use_pi_loss:
+                    if self.int_mode:
                         state, rnn_state = self(i, state, rnn_state)
                     else:
                         f, rnn_state = self(i, state, rnn_state)
                         state = state + self.dt*f
                 else:
-                    if self.use_pi_loss:
+                    if self.int_mode:
                         state, _ = self(i, inputs[i].unsqueeze(0).unsqueeze(0))
                     else:
                         f, _ = self(i, inputs[i].unsqueeze(0).unsqueeze(0))
