@@ -376,7 +376,7 @@ class FFNet(pl.LightningModule):
         return torch.tensor(np.array(net_states))
         
         
-        
+"""    
 #def VarAE_LSTM(nn.Module):
 #    def __init__():
         
@@ -450,7 +450,7 @@ class ESN(object):
         
         return y
         
-"""
+
         ### Prepare network input and labels and first net_out for curriculum learning
         state  = batch[:, :-self.feedforward_steps, :]
         seq_len = batch.shape[1]
