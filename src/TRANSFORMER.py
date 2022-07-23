@@ -114,10 +114,11 @@ class Transformer(pl.LightningModule):
             self.tgt_mask = self.get_tgt_mask(size=state.shape[1]).to(self.device)
         if self.apply_src_mask:
             self.src_mask = self.get_tgt_mask(size=state.shape[1]).to(self.device)
+            
         # Forward pass
         next_state = self.forward(state, labels, self.src_mask, self.tgt_mask)
         # Compute loss
-        train_loss = self.loss_fn(state, next_state)
+        train_loss = nn.MSELoss()(state, next_state)
         # Logging to TensorBoard by default
         self.log("train_loss", train_loss, prog_bar=True)
         return train_loss
@@ -134,7 +135,7 @@ class Transformer(pl.LightningModule):
         # Forward pass
         next_state = self.forward(state, labels, self.src_mask, self.tgt_mask)
         # Compute loss
-        val_loss = self.loss_fn(state, next_state)
+        val_loss = nn.MSELoss()(state, next_state)
         # Logging to TensorBoard by default
         self.log("val_loss", val_loss, prog_bar=True)
         return val_loss

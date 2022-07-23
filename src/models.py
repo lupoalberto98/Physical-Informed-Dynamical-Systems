@@ -13,7 +13,7 @@ import utils
 
 class LSTM(pl.LightningModule):  
     def __init__(self, input_size, hidden_units, layers_num, system, true_system, drop_p=0.1,
-                 lr=0.001, dt=0.01, method_name="RK4", use_pi_loss=False, return_rnn=False, perturbation=None, bidirectional=False, train_out=True, l1=0.0):
+                 lr=0.001, dt=0.01, method_name="RK4", use_pi_loss=False, return_rnn=False, perturbation=None, bidirectional=False, train_out=True, l1=0.0, weight_decay=0.0):
         # Call the parent init function 
         super().__init__()
         # Retrieve parameters
@@ -28,6 +28,7 @@ class LSTM(pl.LightningModule):
         self.perturbation = perturbation
         self.train_out = train_out 
         self.l1 = l1 # L1 regularization weight
+        self.weight_decay = weight_decay
         
         # Define propagation methods (either use physics informed or data driven loss)
         self.method_name = method_name
@@ -86,6 +87,7 @@ class LSTM(pl.LightningModule):
         else: 
             ## Data driven loss + possible perturbation
             # Forward
+            self.method = getattr(utils, self.method_name)(self.dt, model=self.forward)
             df = self.method(state) # Differential computed propagating network
             if self.perturbation is None:
                 train_loss = nn.MSELoss()(state+df, labels) + self.l1*sum(p.abs().sum() for p in self.parameters())
@@ -113,6 +115,7 @@ class LSTM(pl.LightningModule):
             val_loss = nn.MSELoss()(state+df, next_state) + self.l1*sum(p.abs().sum() for p in self.parameters())
         else:
             ## Data driven loss + possible perturbation
+            self.method = getattr(utils, self.method_name)(self.dt, model=self.forward)
             df = self.method(state) # Differential computed propagating network
             if self.perturbation is None:
                 val_loss = nn.MSELoss()(state+df, labels) + self.l1*sum(p.abs().sum() for p in self.parameters())
@@ -126,7 +129,7 @@ class LSTM(pl.LightningModule):
                         
                         
     def configure_optimizers(self):
-        optimizer = optim.Adam(self.parameters(), lr = self.lr)
+        optimizer = optim.Adam(self.parameters(), lr = self.lr, weight_decay=self.weight_decay)
         return optimizer
         
     def set_output(self, return_rnn):
@@ -142,7 +145,7 @@ class LSTM(pl.LightningModule):
             raise Exception
         return int(num_timesteps)
         
-    def predict(self, time, inputs, continuation=False):
+    def predict(self, time, inputs, input_is_looped=True):
         """
         Generate a trajectory of prediction_steps lenght starting from inputs
         Args:
@@ -159,9 +162,20 @@ class LSTM(pl.LightningModule):
         
         for i in range(prediction_steps):
             with torch.no_grad():
-                net_states.append(state[-1].squeeze().numpy())            
-                state, rnn_state = self(i, state, rnn_state)
-           
+                net_states.append(state[-1].squeeze().numpy())
+                if input_is_looped:
+                    if self.use_pi_loss:
+                        state, rnn_state = self(i, state, rnn_state)
+                    else:
+                        f, rnn_state = self(i, state, rnn_state)
+                        state = state + self.dt*f
+                else:
+                    if self.use_pi_loss:
+                        state, _ = self(i, inputs[i].unsqueeze(0).unsqueeze(0))
+                    else:
+                        f, _ = self(i, inputs[i].unsqueeze(0).unsqueeze(0))
+                        state = state + self.dt*f
+                        
         return torch.tensor(np.array(net_states))
 
 
@@ -171,7 +185,7 @@ class LSTM(pl.LightningModule):
 class FFNet(pl.LightningModule):
 
     def __init__(self, seq_len, n_inputs, n_outputs, hidden_layers, system, true_system, drop_p=0.3, lr=0.001, dt=0.002, 
-                method_name="RK4", activation="ReLU", use_pi_loss=False, l1=0.0):
+                method_name="RK4", activation="ReLU", use_pi_loss=False, l1=0, weight_decay=0):
         """
         Initialize a typical feedforward network with different hidden layers
         The input is typically a mnist image, given as a torch tensor of size = (1,784),
@@ -198,6 +212,7 @@ class FFNet(pl.LightningModule):
         self.system = system
         self.true_system = true_system
         self.l1 = l1 # L1 regularization weight
+        self.weight_decay = weight_decay
         
         # Define propagation methods (either use physics informed or data driven loss)
         self.method_name = method_name
@@ -255,13 +270,14 @@ class FFNet(pl.LightningModule):
             ## Physical informed loss
             # Forward
             next_state_flat = self.forward(batch_idx, state_flat) # Propagated through network (already flat)
-            next_state = torch.reshape(next_state_flat, (-1,self.seq_len-1, self.n_inputs))
+            #next_state = torch.reshape(next_state_flat, (-1,self.seq_len-1, self.n_inputs))
             df = self.method(state) # Differential computed with true model
-            #df_flat = torch.flatten(df, start_dim=1)
-            train_loss = nn.MSELoss()(state+df, next_state) + self.l1*sum(p.abs().sum() for p in self.parameters())
+            df_flat = torch.flatten(df, start_dim=1)
+            train_loss = nn.MSELoss()(state_flat+df_flat, next_state_flat) + self.l1*sum(p.abs().sum() for p in self.parameters())
         else: 
             ## Data driven loss 
             # Forward
+            self.method = getattr(utils, self.method_name)(self.dt, model=self.forward)
             df_flat = self.method(state_flat) # Differential computed propagating network
             train_loss = nn.MSELoss()(state_flat+df_flat, labels_flat) + self.l1*sum(p.abs().sum() for p in self.parameters())
            
@@ -289,13 +305,14 @@ class FFNet(pl.LightningModule):
             ## Physical informed loss
             # Forward
             next_state_flat = self.forward(batch_idx, state_flat) # Propagated through network (already flat)
-            next_state = torch.reshape(next_state_flat, (-1,self.seq_len-1, self.n_inputs))
+            #next_state = torch.reshape(next_state_flat, (-1,self.seq_len-1, self.n_inputs))
             df = self.method(state) # Differential computed with true model
-            #df_flat = torch.flatten(df, start_dim=1)
-            val_loss = nn.MSELoss()(state+df, next_state) + self.l1*sum(p.abs().sum() for p in self.parameters())
+            df_flat = torch.flatten(df, start_dim=1)
+            val_loss = nn.MSELoss()(state_flat+df_flat, next_state_flat) + self.l1*sum(p.abs().sum() for p in self.parameters())
         else:
             ## Data driven loss 
             # Forward
+            self.method = getattr(utils, self.method_name)(self.dt, model=self.forward)
             df_flat = self.method(state_flat) # Differential computed propagating network
             val_loss = nn.MSELoss()(state_flat+df_flat, labels_flat) + self.l1*sum(p.abs().sum() for p in self.parameters())
             
@@ -306,7 +323,7 @@ class FFNet(pl.LightningModule):
         return val_loss
         
     def configure_optimizers(self):
-        optimizer = optim.Adam(self.parameters(), lr = self.lr)
+        optimizer = optim.Adam(self.parameters(), lr = self.lr, weight_decay=self.weight_decay)
         return optimizer
 
     def num_timesteps(self, time):
@@ -332,8 +349,11 @@ class FFNet(pl.LightningModule):
         state = torch.flatten(inputs[:self.seq_len-1,:]).unsqueeze(0) # define first state
         self.eval()
         # run an interation and save first elements
-        with torch.no_grad(): 
-            state = self(0, state)
+        with torch.no_grad():
+            if self.use_pi_loss:
+                state = self(0, state)
+            else:
+                state = state+self.dt*self(0, state)
             for i in range(self.seq_len-1):
                 net_states.append(torch.reshape(state, (self.seq_len-1, self.n_inputs))[i].detach().cpu().numpy().tolist())
                 
@@ -341,10 +361,16 @@ class FFNet(pl.LightningModule):
         for i in range(prediction_steps-self.seq_len):
             with torch.no_grad():
                 if input_is_looped:
-                    state = self(0, state)
+                    if self.use_pi_loss:
+                        state = self(0, state)
+                    else:
+                        state = state + self.dt*self(0, state)
                     net_states.append(state[0, -self.n_inputs::].detach().cpu().numpy().tolist())
                 else:
-                    state = self(0, torch.flatten(inputs[i:i+self.seq_len-1,:]).unsqueeze(0))
+                    if self.use_pi_loss:
+                        state = self(0, torch.flatten(inputs[i:i+self.seq_len-1,:]).unsqueeze(0))
+                    else:
+                        state = torch.flatten(inputs[i:i+self.seq_len-1,:]).unsqueeze(0) + self.dt*self(0, torch.flatten(inputs[i:i+self.seq_len-1,:]).unsqueeze(0))
                     net_states.append(state[0, -self.n_inputs::].detach().cpu().numpy().tolist())
                     
         return torch.tensor(np.array(net_states))
