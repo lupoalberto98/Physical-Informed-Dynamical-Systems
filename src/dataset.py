@@ -12,7 +12,7 @@ class GenerateDynSystem():
     """
     Generate data from an autonomous dynamical system
     """
-    def __init__(self, state0, model, dt, steps, discard, filename, sigma=None, include_time=False):
+    def __init__(self, state0, model, dt, steps, discard, filename, sigma=None, measure_noise=0, sparsity=0, include_time=False):
         """
         Args:
         state0 is the initial point (given as 1d array)
@@ -32,7 +32,9 @@ class GenerateDynSystem():
         self.filename = filename
         self.sigma = sigma 
         self.include_time = include_time
-        model.sigma = sigma
+        model.sigma = sigma # std of gaussian noise inside the model
+        self.measure_noise = measure_noise # additive masure noise outside the system
+        self.sparsity = sparsity # percentage of data set to zero
         model.dt = dt
         self.model = model
         
@@ -50,6 +52,13 @@ class GenerateDynSystem():
         # Discard first entries 
         self.time = self.time[self.discard:]
         self.dataset = self.dataset[self.discard:]
+        
+        # add noise and save it
+        self.noise = self.measure_noise*torch.randn_like(self.dataset)
+        self.dataset += self.noise
+        
+        # sparsity
+        self.dataset[torch.rand_like(self.dataset) < self.sparsity] = 0
         
         # Include time dimension
         if self.include_time:
