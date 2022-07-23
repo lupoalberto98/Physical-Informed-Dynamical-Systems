@@ -12,7 +12,6 @@ from LSTM import LSTM
 from FFNet import FFNet
 import utils
 import warnings
-from models import LSTM
 from dataset import DynSysDataset
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping 
 from callbacks import MetricsCallback
