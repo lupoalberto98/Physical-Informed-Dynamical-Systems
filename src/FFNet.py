@@ -13,7 +13,7 @@ import utils
 class FFNet(pl.LightningModule):
 
     def __init__(self, seq_len, n_inputs, n_outputs, hidden_layers, system, true_system, drop_p=0.3, lr=0.001, dt=0.002, 
-                method_name="RK4", activation="ReLU", use_pi_loss=False, l1=0, weight_decay=0):
+                method_name="RK4", activation="ReLU", use_pi_loss=False, int_mode=True, l1=0, weight_decay=0):
         """
         Initialize a typical feedforward network with different hidden layers
         The input is typically a mnist image, given as a torch tensor of size = (1,784),
@@ -45,12 +45,18 @@ class FFNet(pl.LightningModule):
         # Define propagation methods (either use physics informed or data driven loss)
         self.method_name = method_name
         self.use_pi_loss = use_pi_loss
+        self.int_mode = int_mode # if True, net is integrator, else it is the derivative function
         if self.use_pi_loss:
             # Physical informed loss
-            self.method = getattr(utils, self.method_name)(self.dt, model=system.forward)
+            if self.int_mode is False:
+                warnings.warn("Set integrator mode True")
+                self.int_mode = True
+                
+            self.method = getattr(utils, self.method_name)(self.dt, model=system)
         else:
-            # Dat driven loss
-            self.method = getattr(utils, self.method_name)(self.dt, model=self.forward)
+            # Data driven loss
+            if self.int_mode is False:
+                self.method = getattr(utils, self.method_name)(self.dt, model=self)
         
         ### Network architecture
         layers = []
@@ -105,8 +111,13 @@ class FFNet(pl.LightningModule):
         else: 
             ## Data driven loss 
             # Forward
-            df_flat = self.method(state_flat) # Differential computed propagating network
-            train_loss = nn.MSELoss()(state_flat+df_flat, labels_flat) + self.l1*sum(p.abs().sum() for p in self.parameters())
+            if self.int_mode:
+                # act as integrator
+                next_state_flat = self.forward(batch_idx, state_flat)
+                train_loss = nn.MSELoss()(next_state_flat, labels_flat) + self.l1*sum(p.abs().sum() for p in self.parameters())
+            else:
+                df_flat = self.method(state_flat) # Differential computed propagating network
+                train_loss = nn.MSELoss()(state_flat+df_flat, labels_flat) + self.l1*sum(p.abs().sum() for p in self.parameters())
            
       
         # Compute loss between true and learned parameters
@@ -139,8 +150,13 @@ class FFNet(pl.LightningModule):
         else:
             ## Data driven loss 
             # Forward
-            df_flat = self.method(state_flat) # Differential computed propagating network
-            val_loss = nn.MSELoss()(state_flat+df_flat, labels_flat) + self.l1*sum(p.abs().sum() for p in self.parameters())
+            if self.int_mode:
+                # act as integrator
+                next_state_flat = self.forward(batch_idx, state_flat)
+                val_loss = nn.MSELoss()(next_state_flat, labels_flat) + self.l1*sum(p.abs().sum() for p in self.parameters())
+            else:
+                df_flat = self.method(state_flat) # Differential computed propagating network
+                val_loss = nn.MSELoss()(state_flat+df_flat, labels_flat) + self.l1*sum(p.abs().sum() for p in self.parameters())
             
                       
         # Logging to TensorBoard by default
@@ -176,7 +192,7 @@ class FFNet(pl.LightningModule):
         self.eval()
         # run an interation and save first elements
         with torch.no_grad():
-            if self.use_pi_loss:
+            if self.int_mode:
                 state = self(0, state)
             else:
                 state = state+self.dt*self(0, state)
@@ -187,13 +203,13 @@ class FFNet(pl.LightningModule):
         for i in range(prediction_steps-self.seq_len):
             with torch.no_grad():
                 if input_is_looped:
-                    if self.use_pi_loss:
+                    if self.int_mode:
                         state = self(0, state)
                     else:
                         state = state + self.dt*self(0, state)
                     net_states.append(state[0, -self.n_inputs::].detach().cpu().numpy().tolist())
                 else:
-                    if self.use_pi_loss:
+                    if self.int_mode:
                         state = self(0, torch.flatten(inputs[i:i+self.seq_len-1,:]).unsqueeze(0))
                     else:
                         state = torch.flatten(inputs[i:i+self.seq_len-1,:]).unsqueeze(0) + self.dt*self(0, torch.flatten(inputs[i:i+self.seq_len-1,:]).unsqueeze(0))
