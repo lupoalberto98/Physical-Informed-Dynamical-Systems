@@ -1,3 +1,8 @@
+"""
+@author : Alberto Bassi
+"""
+
+#!/usr/bin/env python3
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
@@ -329,8 +334,6 @@ def KL_div(p_points, q_points, epsilon=1.):
     pdf_p = box.get_pdf(p_points, norm=True).flatten()
     pdf_q = box.get_pdf(q_points, norm=True).flatten()
     
-    
-    
     # check len pdfs
     if len(pdf_p)!= len(pdf_q):
         raise ValueError("Pdf distribution do not match in size")
@@ -341,3 +344,47 @@ def KL_div(p_points, q_points, epsilon=1.):
             kl_div += pdf_p[i]*np.log(pdf_p[i]/pdf_q[i])
     
     return kl_div, pdf_p, pdf_q
+
+def wasserstein_distance(p_points, q_poins, epsilon=1.):
+    """
+    Compute the Wasserstein distance between two probability distributions
+    given by two set of points from which the pdf is computed with boxes of side epsilon
+    Args:
+        p_points, q_points : array of size (num_points(i), dim) of which first a pdf must be computed
+        epsilon : side of cubes by which the box volume is divided
+    """
+    
+    # check number of dimensions
+    if len(p_points.shape) != 2:
+        raise ValueError("Input points have wrong number of dimensions")
+    if len(q_points.shape) != 2:
+        raise ValueError("Input points have wrong number of dimensions")
+        
+    # check dimensions
+    if p_points.shape[1] != q_points.shape[1]:
+        raise ValueError("Distributions have different dimensions")
+    
+    dim = p_points.shape[1]
+    
+    # take maxima and minima
+    max_p = np.amax(p_points, axis=0)
+    max_q = np.amax(q_points, axis=0)
+    min_p = np.amin(p_points, axis=0)
+    min_q = np.amin(q_points, axis=0)
+    max_tot = np.maximum(max_p, max_q)
+    min_tot = np.minimum(min_p, min_q)
+    
+    # define then center and box sizes
+    center = (max_tot + min_tot)/2.
+    box_sizes = max_tot - min_tot
+    
+    # define box
+    box = Box(center, box_sizes, epsilon)
+    
+    # compute pdf and flatten
+    pdf_p = box.get_pdf(p_points, norm=True).flatten()
+    pdf_q = box.get_pdf(q_points, norm=True).flatten()
+    
+    # check len pdfs
+    if len(pdf_p)!= len(pdf_q):
+        raise ValueError("Pdf distribution do not match in size")

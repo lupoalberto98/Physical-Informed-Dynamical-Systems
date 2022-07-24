@@ -1,3 +1,8 @@
+"""
+@author : Alberto Bassi
+"""
+
+#!/usr/bin/env python3
 import torch
 import pytorch_lightning as pl
 from pytorch_lightning import Callback
