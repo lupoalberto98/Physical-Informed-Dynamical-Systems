@@ -14,11 +14,10 @@ class Box():
     def __init__(self, center, box_sizes, epsilon=1.):
         """
         Initialize a cell volume box, a n-dimensional box divieded in d_dim cubic boxes of size epsilon
-        ----
         Args:
-        center = the coordinates of the center of the box
-        box_sizes = list of side dimension of the box
-        epsilon = dimension of cubes sides
+            center : the coordinates of the center of the box
+            box_sizes : list of side dimension of the box
+            epsilon : dimension of cubes sides
         """
         # check dimensions
         if len(center)!=len(box_sizes):
@@ -45,11 +44,9 @@ class Box():
     
     def get_center_cube(self, indexes):
         """
-        Copmute the center of a cube from int indexes
-        ____
+        Compute the center of a cube from int indexes
         Args:
-        indexes = list of (int) indexes
-        returns the coordinates of the center of the small cube of side epsilon
+            indexes : list of (int) indexes
         """
         center_cube = []
         for i in range(self.dim):
@@ -61,10 +58,8 @@ class Box():
     def contains(self, point):
         """
         Check if a point is inside the box
-        ____
         Args:
-        point = point to check (list of coordinates)
-        return bool, if True is inside, else not
+            point : point to check (list of coordinates)
         """
         # check dimension of the point
         if len(point)!=self.dim:
@@ -80,10 +75,8 @@ class Box():
     def get_indexes(self, point):
         """
         Return the indexes of the cube in which the point is
-        ____
         Args:
-        point = point to check
-        return indexes list
+            point : point to check
         """
         # check first if it is inside the box
         if not self.contains(point):
@@ -100,10 +93,9 @@ class Box():
     def get_pdf(self, points, norm=False):
         """
         Compute the pdf of of an array of points of dim=self.dim
-        ____
         Args:
-        points = array of shape (num_points, dim)
-        update self.pdf
+            points : array of shape (num_points, dim)
+            norm : if true normalize as pdf, else as frequencies
         """
         # check dimensions
         if len(points.shape) != 2:
@@ -142,9 +134,9 @@ class DS():
     def __init__(self, points, eta=1e-8):
         """
         Initialize with array of points to analysis
-        ___
         Args:
-        points = array of size (num_points, dim)
+            points : array of size (num_points, dim)
+            eta : threshold below which ocnisder value 0
         """
         # check dimensions
         if len(points.shape) != 2:
@@ -163,10 +155,14 @@ class DS():
         
     def d_q(self, q=1, min_eps=1, max_eps=2, num_eps=10, plot=False, filename=None):
         """
-        Compute Dq of the system for q in [0,1]
-        if q=1, returns information dimension
-        if q=0 returns fractal dimension
-        we set x=0 and x*ln(x)=0 if x<self.eta
+        Compute Dq dimension of the system for q in [0,1]
+        Args:
+            q : value. If q=1 returns information dimension, else if q=0 returns fractal dimension
+                we set x=0 and x*ln(x)=0 if x=0
+            min_eps,  max_eps : epsilon interval
+            num_eps : division fo epsilon interval
+            plot : wheather plot or not the interpolation
+            filename : where possibly save interpolation graph
         """
         # checks
         if min_eps >= max_eps:
@@ -229,6 +225,11 @@ class DS():
     def compute_lle(self, true_system, n_div=40, dt=0.002, discard=100):
         """
         Compute local lyapunov exponents statistics and lyapunov exponents
+        Args:
+            true_system : the system to be analysed
+            n_div : number of steps to evolve perturbation
+            dt : time step discretization of the input data
+            discard : number of lles to be discarded at the beginning
         """
         # Initialize perturbation matrix and Local Lyapunov Exponents list
         Q = np.eye(3) # choose identity
@@ -293,7 +294,9 @@ class DS():
 def KL_div(p_points, q_points, epsilon=1.):
     """
     compute KL divergence between data point distributions p and q
-    p_points, q_points are array of size (num_points(i), dim) of which first a pdf must be computed
+    Args:
+        p_points, q_points : array of size (num_points(i), dim) of which first a pdf must be computed
+        epsilon : side of cubes by which the box volume is divided
     """
     # check number of dimensions
     if len(p_points.shape) != 2:
