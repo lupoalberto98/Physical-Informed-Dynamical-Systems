@@ -5,12 +5,10 @@
 #!/usr/bin/env python3
 import numpy as np
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-import math
-from scipy.stats import linregress 
-from scipy.linalg import qr
-from odeintw import odeintw
 from plot import plot_params_distr
+import cvxpy as cp
+import math
+
 
 class Box():
     """
@@ -43,7 +41,6 @@ class Box():
             self.box_sizes[i] = self.epsilon*n_i
             self.int_sizes.append(n_i)
             
-        
         # zero points inside at the beginning
         self.num_points = 0
     
@@ -59,6 +56,21 @@ class Box():
             center_cube.append(c_i)
         
         return center_cube
+    
+    def get_centroids(self):
+        """
+        Compute the centroids of the cubes of the box and return as np.array
+        of size (num_boxes, dim)
+        """
+        centroids = np.ones(self.int_sizes+[self.dim])
+        ind_array = np.ones(self.int_sizes)
+        it = np.nditer(ind_array, flags=['multi_index'])
+        for x in it:
+            indexes = it.multi_index # get indexes
+            center = self.get_center_cube(indexes) # compute center
+            centroids[indexes] = center
+            
+        return centroids
     
     def contains(self, point):
         """
@@ -112,7 +124,7 @@ class Box():
         # take number of points
         num_points = len(points)
        
-        # reinitialize to zero pdf
+        # initialize the pdf
         pdf = np.zeros(self.int_sizes)
         
         # count points in each box
@@ -345,7 +357,7 @@ def KL_div(p_points, q_points, epsilon=1.):
     
     return kl_div, pdf_p, pdf_q
 
-def wasserstein_distance(p_points, q_poins, epsilon=1.):
+def wasserstein_distance(p_points, q_points, epsilon=1.):
     """
     Compute the Wasserstein distance between two probability distributions
     given by two set of points from which the pdf is computed with boxes of side epsilon
@@ -357,15 +369,17 @@ def wasserstein_distance(p_points, q_poins, epsilon=1.):
     # check number of dimensions
     if len(p_points.shape) != 2:
         raise ValueError("Input points have wrong number of dimensions")
-    if len(q_points.shape) != 2:
+    if len(q_points.shape) > 2:
         raise ValueError("Input points have wrong number of dimensions")
         
     # check dimensions
-    if p_points.shape[1] != q_points.shape[1]:
-        raise ValueError("Distributions have different dimensions")
+    if len(p_points.shape) != 2:
+        if p_points.shape[1] != q_points.shape[1]:
+            raise ValueError("Distributions have different dimensions")
+        
     
     dim = p_points.shape[1]
-    
+ 
     # take maxima and minima
     max_p = np.amax(p_points, axis=0)
     max_q = np.amax(q_points, axis=0)
@@ -388,3 +402,24 @@ def wasserstein_distance(p_points, q_poins, epsilon=1.):
     # check len pdfs
     if len(pdf_p)!= len(pdf_q):
         raise ValueError("Pdf distribution do not match in size")
+    
+    # Compute centroids
+    centroids = box.get_centroids().reshape(-1,dim)
+    """
+    For the optimizzation problem, the code is taken from G. Peyré at the link:
+    https://nbviewer.org/github/gpeyre/numerical-tours/blob/master/python/optimaltransp_1_linprog.ipynb
+    """
+    # Compute distance matrix
+    C = np.sum(centroids**2,1)[:,None] + np.sum(centroids**2,1)[None,:] - 2*np.dot(centroids, centroids.transpose())
+    
+    # cvxpy convex optimization 
+    n = np.prod(box.int_sizes)
+    P = cp.Variable((n,n))
+    u = np.ones((n,1))
+    v = np.ones((n,1))
+    U = [0 <= P, cp.matmul(P,u)==np.expand_dims(pdf_p, 1), cp.matmul(P.T,v)==np.expand_dims(pdf_q,1)]
+    objective = cp.Minimize( cp.sum(cp.multiply(P,C)) )
+    prob = cp.Problem(objective, U)
+    result = prob.solve()
+    
+    return result
