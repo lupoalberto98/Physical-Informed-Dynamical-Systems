@@ -10,6 +10,8 @@ import matplotlib.cm as cm
 from matplotlib.colors import Normalize
 from scipy import signal
 from sklearn.metrics import r2_score
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+from DsTools import Box
 
     
 def compare_R2scores(net, true_states, time=20):
@@ -281,4 +283,51 @@ def plot_3ddistr(enc, true_params, indeces=[0,1,2],filename=None):
     return fig
 
 
+def plot_compute_pdf(points, epsilon=0.5, filename=None):
+    """
+    Plot pdf (normalized) for 1d,2d,3d distributions
+    For 1d plot the histogram, while box for 2d, 3d
+    Args:
+        points : data to be copmuted the pdf
+        epsilon : length of cubes 
+        labels : labels to put
+        filename : if not None file where to save plot
+    """
+    
+    fig, ax = plt.subplots(nrows=1,ncols=points.shape[-1], figsize = (15,5))
+    
+    for i in range(points.shape[-1]):
+        
+       
+        if i==0:
+            points_reduced = points[:,:2]
+            ax[i].set_xlabel("x1")
+            ax[i].set_ylabel("x2")
+        if i==1:
+            points_reduced = points[:,0::2]
+            ax[i].set_xlabel("x1")
+            ax[i].set_ylabel("x3")
+        if i==2:
+            points_reduced = points[:,1:]
+            ax[i].set_xlabel("x2")
+            ax[i].set_ylabel("x3")
+            
+        # compute box
+        center = (np.amax(points_reduced, axis=0) + np.amin(points_reduced, axis=0))/2.
+        box_sizes = np.amax(points_reduced, axis=0) - np.amin(points_reduced, axis=0)
+        box = Box(center, box_sizes, epsilon)
+        
+        # compute hist (pdf=h[0])
+        h = ax[i].hist2d(points_reduced[:,0], points_reduced[:,1], bins = box.int_sizes,cmap="RdBu_r", density = True)
+        
+        divider = make_axes_locatable(ax[i])
+        cax = divider.append_axes("right", size="5%", pad=0.05)
+        fig.colorbar(h[3], cax=cax)
+        
+        
+    # save
+    if filename is not None:
+        fig.savefig(filename)
 
+    fig.tight_layout()
+    return fig

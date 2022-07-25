@@ -5,10 +5,50 @@
 #!/usr/bin/env python3
 import numpy as np
 import matplotlib.pyplot as plt
-from plot import plot_params_distr
 import cvxpy as cp
 import math
 
+# Plot learned parameters distribution
+def plot_params_distr(enc, plot_stat=False, true_params=None, labels=None, bins=100, range=None, filename=None):
+    fig, axs = plt.subplots(figsize=(10,5), ncols=1, nrows=enc.shape[1])
+    gs = axs[1].get_gridspec()
+    # Plot reconstructed trajectory
+    index = 0
+    statistics = []
+    for ax in axs[0:]:
+        if labels is not None:
+            ax.set_xlabel(labels[index])
+        else: 
+            ax.set_xlabel("x"+str(index+1))
+            
+        ax.set_ylabel("density")
+        
+        # Copmute statistics
+        mean = np.mean(enc.detach().cpu().numpy()[:,index])
+        std = np.std(enc.detach().cpu().numpy()[:,index])
+        statistics.append([mean, std])
+        
+        # Plot histogram and show mean and std
+        ax.hist(enc.detach().cpu().numpy()[:,index], bins=bins, density=True, range=range)
+        if plot_stat:
+            ax.axvspan(mean-std, mean+std, alpha=0.3, color='red')
+            ax.axvline(x=mean, c="red", lw=2, ls="--")
+        
+        # Plot true parameters
+        if true_params is not None:
+            ax.axvline(x=true_params[index], c="red", lw=2)
+            
+            
+        ax.grid()
+        index = index+1
+        
+
+    fig.tight_layout()
+    # Save and return
+    if filename is not None:
+        plt.savefig(filename)
+        
+    return fig, np.array(statistics)
 
 class Box():
     """
@@ -422,4 +462,4 @@ def wasserstein_distance(p_points, q_points, epsilon=1.):
     prob = cp.Problem(objective, U)
     result = prob.solve()
     
-    return result
+    return np.sqrt(result)/n
