@@ -120,7 +120,8 @@ class FFNet(pl.LightningModule):
                 next_state_flat = self.forward(batch_idx, state_flat)
                 train_loss = nn.MSELoss()(next_state_flat, labels_flat) + self.l1*sum(p.abs().sum() for p in self.parameters())
             else:
-                df_flat = self.method(state_flat) # Differential computed propagating network
+                df = self.method(state)
+                df_flat = torch.flatten(df, start_dim=1) # Differential computed propagating network
                 train_loss = nn.MSELoss()(state_flat+df_flat, labels_flat) + self.l1*sum(p.abs().sum() for p in self.parameters())
            
       
@@ -159,7 +160,8 @@ class FFNet(pl.LightningModule):
                 next_state_flat = self.forward(batch_idx, state_flat)
                 val_loss = nn.MSELoss()(next_state_flat, labels_flat) + self.l1*sum(p.abs().sum() for p in self.parameters())
             else:
-                df_flat = self.method(state_flat) # Differential computed propagating network
+                df = self.method(state)
+                df_flat = torch.flatten(df, start_dim=1) # Differential computed propagating network
                 val_loss = nn.MSELoss()(state_flat+df_flat, labels_flat) + self.l1*sum(p.abs().sum() for p in self.parameters())
             
                       

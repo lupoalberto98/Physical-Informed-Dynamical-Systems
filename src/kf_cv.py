@@ -3,6 +3,7 @@ import torch.nn as nn
 import numpy as np
 from tqdm.notebook import tqdm_notebook
 from torch.utils.data import Dataset, DataLoader
+import warnings
 
 ### Train epoch function
 def train_epoch(net, device, dataloader, optimizer):
@@ -88,12 +89,12 @@ def KF_split(k_fold, batch_size, dataset):
     Returns:
     dataloaders: list containing all k_fold dataloaders after splitting
     """
-    # Take the length of dataset
-    len_dataset = len(dataset)
+    # Take the length of dataset (pytorch dataset)
+    len_dataset = dataset.__len__()
     
     # Define the k-folds
     len_fold = len_dataset//k_fold
-    folds = torch.utils.data.random_split(dataset, k_fold*[len_fold])
+    folds = torch.utils.data.random_split(dataset[:k_fold*len_fold], k_fold*[len_fold])
     
     # Defin empty list dataloaders
     kf_dataloaders = []
@@ -104,9 +105,43 @@ def KF_split(k_fold, batch_size, dataset):
         
     return kf_dataloaders
 
-
+### simple early stoppinng costume class
+class early_stopping():
+    
+    def __init__(self, patience, mode="min"):
+        """
+        Initialize
+        Args:
+            patience : number of steps without improvement before stopping
+            mod : "min" or "max"
+        """
+        self.patience = patience
+        self.mode = mode
+    
+    def stop_training(self, loss):
+        """
+        Args:
+            loss : metric to be evaluated, iterable object
+        """
+        break_loop = False
+        trained_epochs = len(loss)
+        if trained_epochs >= self.patience:
+            if self.mode=="min":
+                min_value = min(loss)
+                if min(loss[-self.patience:]) > min_value:
+                    warnings.warn("Training stopped at epoch %d"%trained_epochs)
+                    break_loop = True
+            
+            elif self.mode=="max":
+                max_value = max(loss)
+                if max(loss[-self.patience:]) < max_value:
+                    warnings.warn("Training stopped at epoch %d"%trained_epochs)
+                    break_loop = True
+                    
+        return break_loop
+    
 ### Train epochs with k-fold cross validation
-def kf_train_epochs(net, device, k_fold, batch_size, dataset, optimizer, max_num_epochs, early_stopping = True):
+def kf_train_epochs(net, device, k_fold, batch_size, dataset, optimizer, max_num_epochs, early_stopping=None):
     """
     """
     # Progress bar
@@ -162,9 +197,8 @@ def kf_train_epochs(net, device, k_fold, batch_size, dataset, optimizer, max_num
         std_val.append(np.std(val_loss_folds))
         
         # Early stopping
-        if early_stopping:
-            if np.mean(mean_val[-10:]) < mean_val[-1]:
-                print("Training stopped at epoch "+str(epoch_num)+" to avoid overfitting.")
+        if early_stopping is not None:
+            if early_stopping.stop_training(mean_val):
                 break
         
     return mean_train, std_train, mean_val, std_val
