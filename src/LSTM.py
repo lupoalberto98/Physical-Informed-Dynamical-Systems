@@ -16,8 +16,8 @@ import utils
 
 
 class LSTM(pl.LightningModule):  
-    def __init__(self, input_size, hidden_units, layers_num, system, true_system, drop_p=0.1,
-                 lr=0.001, dt=0.01, method_name="RK4", use_pi_loss=False, int_mode=True, return_rnn=False, perturbation=None, bidirectional=False, train_out=True, l1=0.0, weight_decay=0.0):
+    def __init__(self, input_size, hidden_units, layers_num, system, true_system, drop_p=0.3,
+                 lr=0.001, dt=0.002, method_name="RK4", use_pi_loss=False, int_mode=True, return_rnn=False, perturbation=None, bidirectional=False, train_out=True, l1=0.0, weight_decay=0.0):
         # Call the parent init function 
         super().__init__()
         # Retrieve parameters

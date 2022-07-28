@@ -93,7 +93,7 @@ def KF_split(k_fold, batch_size, dataset):
     len_dataset = dataset.__len__()
     
     # Define the k-folds
-    len_fold = len_dataset//k_fold
+    len_fold = int(len_dataset/k_fold)
     folds = torch.utils.data.random_split(dataset[:k_fold*len_fold], k_fold*[len_fold])
     
     # Defin empty list dataloaders

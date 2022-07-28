@@ -15,7 +15,7 @@ import math
 
 # Define the vector field for Lorenz 63 system
 class Lorenz63(nn.Module):
-    def __init__(self, params, sigma=None, dt=0.01):
+    def __init__(self, params, sigma=None, dt=0.002):
         super(Lorenz63, self).__init__()
         #self.register_parameter(name="params", param=nn.Parameter(params))
         self.params = params # tensor of size = (3) the same dimension of state, containing parameters (rho, sigma, beta)
@@ -69,7 +69,7 @@ class Lorenz63(nn.Module):
 
 # Vector field of Rossel system
 class Roessler76(nn.Module):
-    def __init__(self, params, sigma=None, dt=0.01):
+    def __init__(self, params, sigma=None, dt=0.002):
         super(Roessler76, self).__init__()
         self.params = params
         self.sigma = sigma
@@ -109,7 +109,7 @@ class Roessler76(nn.Module):
         jac[1][0] = 1.
         jac[1][1] = self.params[0]
         jac[2][0] = z
-        jac[2][2] = x
+        jac[2][2] = x - self.params[2]
         
         return jac
     

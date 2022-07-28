@@ -236,7 +236,7 @@ def plot_params_distr(enc, plot_stat=False, true_params=None, labels=None, bins=
         statistics.append([mean, std])
         
         # Plot histogram and show mean and std
-        ax.hist(enc.detach().cpu().numpy()[:,index], bins=bins, density=True, range=range)
+        ax.hist(enc.detach().cpu().numpy()[:,index], bins=bins, density=True, range=range, log=True)
         if plot_stat:
             ax.axvspan(mean-std, mean+std, alpha=0.3, color='red')
             ax.axvline(x=mean, c="red", lw=2, ls="--")
@@ -301,16 +301,16 @@ def plot_compute_pdf(points, epsilon=0.5, filename=None):
        
         if i==0:
             points_reduced = points[:,:2]
-            ax[i].set_xlabel("x1")
-            ax[i].set_ylabel("x2")
+            ax[i].set_xlabel("$x^{(1)}$")
+            ax[i].set_ylabel("$x^{(2)}$")
         if i==1:
             points_reduced = points[:,0::2]
-            ax[i].set_xlabel("x1")
-            ax[i].set_ylabel("x3")
+            ax[i].set_xlabel("$x^{(1)}$")
+            ax[i].set_ylabel("$x^{(3)}$")
         if i==2:
             points_reduced = points[:,1:]
-            ax[i].set_xlabel("x2")
-            ax[i].set_ylabel("x3")
+            ax[i].set_xlabel("$x^{(2)}$")
+            ax[i].set_ylabel("$x^{(3)}$")
             
         # compute box
         center = (np.amax(points_reduced, axis=0) + np.amin(points_reduced, axis=0))/2.
@@ -324,10 +324,9 @@ def plot_compute_pdf(points, epsilon=0.5, filename=None):
         cax = divider.append_axes("right", size="5%", pad=0.05)
         fig.colorbar(h[3], cax=cax)
         
-        
+    fig.tight_layout()
     # save
     if filename is not None:
         fig.savefig(filename)
 
-    fig.tight_layout()
     return fig

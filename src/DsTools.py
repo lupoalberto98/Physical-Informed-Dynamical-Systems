@@ -7,6 +7,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import cvxpy as cp
 import math
+from odeintw import odeintw
+from scipy.linalg import qr
 
 # Plot learned parameters distribution
 def plot_params_distr(enc, plot_stat=False, true_params=None, labels=None, bins=100, range=None, filename=None):
