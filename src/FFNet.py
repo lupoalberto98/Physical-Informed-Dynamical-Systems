@@ -16,23 +16,30 @@ import utils
 
 class FFNet(pl.LightningModule):
 
-    def __init__(self, seq_len, n_inputs, n_outputs, hidden_layers, system, true_system, drop_p=0.3, lr=0.001, dt=0.002, 
+    def __init__(self, n_inputs, n_outputs, hidden_layers, system, true_system, drop_p=0.3, lr=0.001, dt=0.002, 
                 method_name="RK4", activation="ReLU", use_pi_loss=False, int_mode=True, l1=0, weight_decay=0):
         """
         Initialize a typical feedforward network with different hidden layers
         The input is typically a mnist image, given as a torch tensor of size = (1,784),
         or a sequence, torch.tensor of size (1, seq_length, 3)
-        ----------
         Args:
-        n_inputs = input features
-        n_outputs = output features
-        hidden_layers = list of sizes of the hidden layers
-        drop_p = dropout probability
-        lr = learning rate
+            n_inputs : input features
+            n_outputs : output features
+            hidden_layers : list of sizes of the hidden layers
+            system : variable system
+            true_system : ground thruth hypothesis
+            drop_p : dropout probability
+            lr : learning rate
+            dt : time discretization
+            method_name : algorithm for losses
+            activation : activation function
+            use_pi_loss : if True, use integrtor physics informed loss, False use data driven
+            int_mode : integrator mode
+            l1 : l1 regularization constant
+            weight_decay : l2 regularization constant
         """
         super().__init__()
         # Parameters
-        self.seq_len = seq_len
         self.n_inputs = n_inputs
         self.n_outputs = n_outputs
         self.hidden_layers = hidden_layers
@@ -56,7 +63,7 @@ class FFNet(pl.LightningModule):
                 warnings.warn("Set integrator mode True")
                 self.int_mode = True
                 
-            self.method = getattr(utils, self.method_name)(self.dt, model=system)
+            self.method = getattr(utils, self.method_name)(self.dt, model=self.system)
         else:
             # Data driven loss
             if self.int_mode is False:
@@ -66,7 +73,7 @@ class FFNet(pl.LightningModule):
         layers = []
         
         # input layer
-        layers.append(nn.Linear((self.seq_len-1)*self.n_inputs, self.hidden_layers[0]))
+        layers.append(nn.Linear(self.n_inputs, self.hidden_layers[0]))
         layers.append(nn.Dropout(self.drop_p, inplace = False))
         layers.append(self.activation)
         
@@ -77,7 +84,7 @@ class FFNet(pl.LightningModule):
             layers.append(self.activation)
         
         # output layer
-        layers.append(nn.Linear(self.hidden_layers[-1], (self.seq_len-1)*self.n_outputs))
+        layers.append(nn.Linear(self.hidden_layers[-1], self.n_outputs))
         
         self.layers = nn.ModuleList(layers)
                           
@@ -120,8 +127,7 @@ class FFNet(pl.LightningModule):
                 next_state_flat = self.forward(batch_idx, state_flat)
                 train_loss = nn.MSELoss()(next_state_flat, labels_flat) + self.l1*sum(p.abs().sum() for p in self.parameters())
             else:
-                df = self.method(state)
-                df_flat = torch.flatten(df, start_dim=1) # Differential computed propagating network
+                df_flat = self.method(state_flat)
                 train_loss = nn.MSELoss()(state_flat+df_flat, labels_flat) + self.l1*sum(p.abs().sum() for p in self.parameters())
            
       
@@ -160,8 +166,7 @@ class FFNet(pl.LightningModule):
                 next_state_flat = self.forward(batch_idx, state_flat)
                 val_loss = nn.MSELoss()(next_state_flat, labels_flat) + self.l1*sum(p.abs().sum() for p in self.parameters())
             else:
-                df = self.method(state)
-                df_flat = torch.flatten(df, start_dim=1) # Differential computed propagating network
+                df_flat = self.method(state_flat)
                 val_loss = nn.MSELoss()(state_flat+df_flat, labels_flat) + self.l1*sum(p.abs().sum() for p in self.parameters())
             
                       
@@ -192,6 +197,8 @@ class FFNet(pl.LightningModule):
             inputs : dataset to be compared, torch.tensor of size (num_points, dim)
             input_is_looped: if True, the output is fed into the network as an input at the next step
         """
+        dim = inputs.shape[1]
+        self.seq_len = int(self.n_inputs/dim)+1
         prediction_steps = self.num_timesteps(time)
         net_states = [inputs[0].detach().cpu().numpy().tolist()] # first element is first of inputs
         state = torch.flatten(inputs[:self.seq_len-1,:]).unsqueeze(0) # define first state
@@ -203,7 +210,7 @@ class FFNet(pl.LightningModule):
             else:
                 state = state+self.dt*self(0, state)
             for i in range(self.seq_len-1):
-                net_states.append(torch.reshape(state, (self.seq_len-1, self.n_inputs))[i].detach().cpu().numpy().tolist())
+                net_states.append(torch.reshape(state, (self.seq_len-1, dim))[i].detach().cpu().numpy().tolist())
                 
         # run all the other iterations
         for i in range(prediction_steps-self.seq_len):
@@ -213,13 +220,13 @@ class FFNet(pl.LightningModule):
                         state = self(0, state)
                     else:
                         state = state + self.dt*self(0, state)
-                    net_states.append(state[0, -self.n_inputs::].detach().cpu().numpy().tolist())
+                    net_states.append(state[0, -dim::].detach().cpu().numpy().tolist())
                 else:
                     if self.int_mode:
                         state = self(0, torch.flatten(inputs[i:i+self.seq_len-1,:]).unsqueeze(0))
                     else:
                         state = torch.flatten(inputs[i:i+self.seq_len-1,:]).unsqueeze(0) + self.dt*self(0, torch.flatten(inputs[i:i+self.seq_len-1,:]).unsqueeze(0))
-                    net_states.append(state[0, -self.n_inputs::].detach().cpu().numpy().tolist())
+                    net_states.append(state[0, -dim::].detach().cpu().numpy().tolist())
                     
         return torch.tensor(np.array(net_states))
         

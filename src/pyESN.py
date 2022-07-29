@@ -280,6 +280,7 @@ class ESN:
             extended_states = states  # non-extended states do not matter
             # because we are using the pseudoinverse.
             
+        print(extended_states[transient:].shape)
         # Solve for W_out:
         if self.use_pi_loss:
             df = self.pi_method(torch.tensor(inputs[transient:], dtype=torch.float32))

@@ -9,43 +9,39 @@ import cvxpy as cp
 import math
 from odeintw import odeintw
 from scipy.linalg import qr
+from scipy.stats import linregress
+from scipy.special import kl_div
 
 # Plot learned parameters distribution
-def plot_params_distr(enc, plot_stat=False, true_params=None, labels=None, bins=100, range=None, filename=None):
-    fig, axs = plt.subplots(figsize=(10,5), ncols=1, nrows=enc.shape[1])
-    gs = axs[1].get_gridspec()
-    # Plot reconstructed trajectory
-    index = 0
-    statistics = []
-    for ax in axs[0:]:
-        if labels is not None:
-            ax.set_xlabel(labels[index])
-        else: 
-            ax.set_xlabel("x"+str(index+1))
+def plot_params_distr(enc, plot_stat=False, true_param=None, label=None, bins=100, range=None, filename=None):
+    # Plot distribution
+    fig, ax = plt.subplots(figsize=(10,5), ncols=1, nrows=1)
+ 
+    
+    if label is not None:
+        ax.set_xlabel(label)
+    
             
-        ax.set_ylabel("density")
+    ax.set_ylabel("density")
         
-        # Copmute statistics
-        mean = np.mean(enc.detach().cpu().numpy()[:,index])
-        std = np.std(enc.detach().cpu().numpy()[:,index])
-        statistics.append([mean, std])
+    # Copmute statistics
+    mean = np.mean(enc.detach().cpu().numpy())
+    std = np.std(enc.detach().cpu().numpy())
+    statistics = [mean, std]
         
-        # Plot histogram and show mean and std
-        ax.hist(enc.detach().cpu().numpy()[:,index], bins=bins, density=True, range=range)
-        if plot_stat:
-            ax.axvspan(mean-std, mean+std, alpha=0.3, color='red')
-            ax.axvline(x=mean, c="red", lw=2, ls="--")
+    # Plot histogram and show mean and std
+    ax.hist(enc.detach().cpu().numpy(), bins=bins, density=True, range=range)
+    if plot_stat:
+        ax.axvspan(mean-std, mean+std, alpha=0.3, color='red')
+        ax.axvline(x=mean, c="red", lw=2, ls="--")
         
-        # Plot true parameters
-        if true_params is not None:
-            ax.axvline(x=true_params[index], c="red", lw=2)
-            
-            
-        ax.grid()
-        index = index+1
-        
-
+    # Plot true parameters
+    if true_params is not None:
+        ax.axvline(x=true_param, c="red", lw=2)
+                   
+    ax.grid()
     fig.tight_layout()
+    
     # Save and return
     if filename is not None:
         plt.savefig(filename)
@@ -397,6 +393,7 @@ def KL_div(p_points, q_points, epsilon=1.):
         if pdf_p[i] > 0 and pdf_q[i]>0:
             kl_div += pdf_p[i]*np.log(pdf_p[i]/pdf_q[i])
     
+    
     return kl_div, pdf_p, pdf_q
 
 def wasserstein_distance(p_points, q_points, epsilon=1.):
@@ -438,8 +435,8 @@ def wasserstein_distance(p_points, q_points, epsilon=1.):
     box = Box(center, box_sizes, epsilon)
     
     # compute pdf and flatten
-    pdf_p = box.get_pdf(p_points, norm=True).flatten()
-    pdf_q = box.get_pdf(q_points, norm=True).flatten()
+    pdf_p = box.get_pdf(p_points, norm=False).flatten()
+    pdf_q = box.get_pdf(q_points, norm=False).flatten()
     
     # check len pdfs
     if len(pdf_p)!= len(pdf_q):

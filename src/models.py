@@ -82,7 +82,7 @@ class Roessler76(nn.Module):
         
     def forward(self, t, state):
         field = torch.clone(state)
-        field[...,0] = - state[...,1] - state[...,2]
+        field[...,0] =  -state[...,1] - state[...,2]
         field[...,1] = state[...,0] + self.params[0]*state[...,1]
         field[...,2] = self.params[1] + state[...,2]*(state[...,0] - self.params[2])
             
@@ -91,7 +91,7 @@ class Roessler76(nn.Module):
     ### Functions for torchsde stochastic differential equation solver
     def f(self, t, state):
         field = torch.clone(state)
-        field[...,0] = - state[...,1] - state[...,2]
+        field[...,0] =  -state[...,1] - state[...,2]
         field[...,1] = state[...,0] + self.params[0]*state[...,1]
         field[...,2] = self.params[1] + state[...,2]*(state[...,0] - self.params[2])
             

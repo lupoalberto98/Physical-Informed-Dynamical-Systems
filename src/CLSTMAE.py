@@ -15,6 +15,7 @@ from FFNet import FFNet
 import utils
 import warnings
 from CAE import ConvEncoder
+import models
     
 
 ### Convolutional Encoder + LSTM Decoder
@@ -23,8 +24,8 @@ class ConvLSTMAE(pl.LightningModule):
     """
     Autoencoder with a convolutional encoder and a LSTM decoder
     """
-    def __init__(self,in_channels, out_channels, kernel_sizes, 
-           padding=(0,0),  encoded_space_dim=1, lstm_hidden_units=100, bidirectional=False,layers_num=2, act=nn.ReLU, drop_p=0.1, seq_len=100, feedforward_steps=1, lr=0.001, dt=0.01, system_name="Lorenz63", system_dim=3, num_param=3, enc_space_reg="PI", beta=1.0,lr_scheduler_name="ExponentialLR", gamma=1.0):
+    def __init__(self,in_channels, out_channels, kernel_sizes, true_system,
+           padding=(0,0),  encoded_space_dim=1, lstm_hidden_units=100, bidirectional=False,layers_num=2, act=nn.ReLU, drop_p=0.1, seq_len=100, feedforward_steps=1, lr=0.001, dt=0.01, enc_space_reg="PI", beta=1.0,lr_scheduler_name="ExponentialLR", gamma=1.0):
         
         super().__init__()
         
@@ -34,9 +35,10 @@ class ConvLSTMAE(pl.LightningModule):
         self.lr = lr
         self.dt = dt
         self.encoded_space_dim = encoded_space_dim
-        self.system_name = system_name #string specifing the system being used
-        self.system_dim = system_dim
-        self.num_param = num_param
+        self.true_system = true_system
+        self.system_name = true_system.__class__.__name__ #string specifing the system being used
+        self.system_dim = true_system.dim
+        self.num_param = len(true_system.params)
         self.enc_space_reg = enc_space_reg # string specifing ho to compute loss
         self.beta = beta # weight for regularization losses
         self.lr_scheduler_name = lr_scheduler_name
@@ -58,16 +60,16 @@ class ConvLSTMAE(pl.LightningModule):
         D=1
         if bidirectional:
             D=2
-        self.out = nn.Linear(D*lstm_hidden_units, system_dim)
+        self.out = nn.Linear(D*lstm_hidden_units, self.system_dim)
         
-         ### Checkings 
-        if self.enc_space_reg == "PI":
+        ### Checkings 
+        if self.enc_space_reg == None:
+            warnings.warn("No encoded space regualarization used")
+        else:
             if self.encoded_space_dim < self.num_param:
                 raise ValueError("Encoded space dimension too small to be regularized with PI loss")
-        else:
-            warnings.warn("No encoded space regualarization used")
             
-        print("Network initialized")
+        print("Convolutional LSTM Autoencoder initialized")
 
         
     def forward(self, x):
@@ -81,7 +83,7 @@ class ConvLSTMAE(pl.LightningModule):
         # Reinsert channel dimension
         rec = rec.unsqueeze(1)
 
-        return (enc, rec)
+        return enc, rec
         
     def training_step(self, batch, batch_idx):
         # Unsqueeze batch
@@ -96,18 +98,22 @@ class ConvLSTMAE(pl.LightningModule):
         # Forward step
         enc_state, rec_state = self.forward(state)
         # Compute reconstruction loss
-        rec_loss = nn.MSELoss()(rec_state, state)
+        rec_loss = nn.MSELoss()(rec_state, labels)
+        
         # Compute regularization loss
-        if self.enc_space_reg=="PI": # self.feedfrward_steps should be 1 here
+        if self.enc_space_reg == "PI": # self.feedfrward_steps should be 1 here
             # Initialize the system with parameters as the first entries of encoded batch
-            system = getattr(utils, self.system_name)(params=enc_state[:,:self.num_param].unsqueeze(1).unsqueeze(1))
+            system = getattr(models, self.system_name)(params=enc_state[:,:self.num_param].unsqueeze(1).unsqueeze(1))
             # Initialize the physical informed method to compute loss
             method = utils.RK4(self.dt, model=system)
             # Compute differential and error
             df = method(state)
             reg_loss += nn.MSELoss()(state+df, labels)*self.beta
             self.log("train_reg_loss", reg_loss, prog_bar=True)
-       
+        if self.enc_space_reg == "TRUE":
+            reg_loss += nn.MSELoss()(enc_state[:,:self.num_param],self.true_system.params)*self.beta
+            self.log("train_reg_loss", reg_loss, prog_bar=True)
+            
             
         # Logging to TensorBoard by default
         train_loss = rec_loss + reg_loss
@@ -124,21 +130,26 @@ class ConvLSTMAE(pl.LightningModule):
         ### Prepare network input and labels 
         state  = batch[:,:, :self.seq_len-self.feedforward_steps, :]
         labels = batch[:,:, self.feedforward_steps:, :]
+        
         # Set reg loss to zero
         reg_loss = 0
         # Forward step
         enc_state, rec_state = self.forward(state)
         # Compute reconstruction loss
-        rec_loss = nn.MSELoss()(rec_state, state)
+        rec_loss = nn.MSELoss()(rec_state, labels)
+        
         # Compute regularization loss
-        if self.enc_space_reg=="PI": # self.feedfrward_steps should be 1 here
+        if self.enc_space_reg == "PI": # self.feedfrward_steps should be 1 here
             # Initialize the system with parameters as the first entries of encoded batch
-            system = getattr(utils, self.system_name)(params=enc_state[:,:self.num_param].unsqueeze(1).unsqueeze(1))
+            system = getattr(models, self.system_name)(params=enc_state[:,:self.num_param].unsqueeze(1).unsqueeze(1))
             # Initialize the physical informed method to compute loss
             method = utils.RK4(self.dt, model=system)
             # Compute differential and error
             df = method(state)
             reg_loss += nn.MSELoss()(state+df, labels)*self.beta
+            self.log("val_reg_loss", reg_loss, prog_bar=True)
+        if self.enc_space_reg == "TRUE":
+            reg_loss += nn.MSELoss()(enc_state[:,:self.num_param],self.true_system.params)*self.beta
             self.log("val_reg_loss", reg_loss, prog_bar=True)
             
         # Compute reconstruction loss

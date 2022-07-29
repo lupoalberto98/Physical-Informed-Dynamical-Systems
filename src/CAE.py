@@ -14,6 +14,7 @@ from LSTM import LSTM
 from FFNet import FFNet
 import utils
 import warnings
+import models
 
 ### Convolutional Autoencoder
 class ConvEncoder(pl.LightningModule):
@@ -192,8 +193,8 @@ class ConvDecoder(pl.LightningModule):
 ### Symmetric convolutional autoencoder
 class ConvAE(pl.LightningModule):
     
-    def __init__(self, in_channels, out_channels, kernel_sizes, 
-           padding=(0,0),  encoded_space_dim=1, act=nn.ReLU, drop_p=0.1, seq_len=100, feedforward_steps=1, lr=0.001, dt=0.01, system_name="Lorenz63", system_dim=3, num_param=3, enc_space_reg="PI", beta=1.0, lr_scheduler_name="ExponentialLR", gamma=1.0):
+    def __init__(self, in_channels, out_channels, kernel_sizes, true_system,
+           padding=(0,0),  encoded_space_dim=10, act=nn.ReLU, drop_p=0.1, seq_len=100, feedforward_steps=1, lr=0.001, dt=0.01, enc_space_reg=None, beta=1.0, lr_scheduler_name="ExponentialLR", gamma=1.0):
         
         super().__init__()
         self.encoder = ConvEncoder(in_channels, out_channels, kernel_sizes, padding, encoded_space_dim, 
@@ -201,50 +202,53 @@ class ConvAE(pl.LightningModule):
         self.decoder = ConvDecoder(in_channels, out_channels, kernel_sizes, padding, encoded_space_dim, drop_p, act, seq_len, feedforward_steps)
         
         self.seq_len = seq_len
-        self.feedforward_steps = feedforward_steps
+        self.feedforward_steps = feedforward_steps # how many predictive steps
         self.lr = lr
         self.dt = dt
         self.encoded_space_dim = encoded_space_dim
-        self.system_name = system_name #string specifing the system being used
-        self.system_dim = system_dim
-        self.num_param = num_param
-        self.enc_space_reg = enc_space_reg # string specifing ho to compute loss
+        self.true_system = true_system
+        self.system_name = true_system.__class__.__name__ #string specifing the system being used
+        self.system_dim = true_system.dim
+        self.num_param = len(true_system.params)
+        self.enc_space_reg = enc_space_reg # string specifing how to compute regularization loss
         self.beta = beta # Weights for regularization losses
         self.lr_scheduler_name = lr_scheduler_name
         self.gamma = gamma
         
         ### Checkings 
-        if self.enc_space_reg == "PI":
+        if self.enc_space_reg == None:
+            warnings.warn("No encoded space regualarization used")
+        else:
             if self.encoded_space_dim < self.num_param:
                 raise ValueError("Encoded space dimension too small to be regularized with PI loss")
-        else:
-            warnings.warn("No encoded space regualarization used")
         
+        print("Convolutional Autoencoder initialized")
+       
     def forward(self, t, x):
         # Encode data and keep track of indexes
         enc, indeces_1, indeces_2, indeces_3 = self.encoder(x)
         # Decode data
         rec = self.decoder(enc, indeces_1, indeces_2, indeces_3)
-        return (enc, rec)
+        return enc, rec
 
     def training_step(self, batch, batch_idx):
         # Unsqueeze batch
         batch = batch.unsqueeze(1)
         ### Prepare network input and labels 
         state  = batch[:,:, :self.seq_len-self.feedforward_steps, :]
-        labels = batch[:,:, self.feedforward_steps:, :]
+        labels = batch[:,:, self.feedforward_steps:, :] #if feedforard step=0 is equal to state
         
         # Set reg loss to zero
         reg_loss = 0
         # Forward step
         enc_state, rec_state = self.forward(batch_idx, state)
         # Compute reconstruction loss
-        rec_loss = nn.MSELoss()(rec_state, state)
+        rec_loss = nn.MSELoss()(rec_state, labels)
         
         # Compute regularization loss
-        if self.enc_space_reg is not None: # self.feedfrward_steps should be 1 here
+        if self.enc_space_reg == "PI": # self.feedfrward_steps should be 1 here
             # Initialize the system with parameters as the first entries of encoded batch
-            system = getattr(utils, self.system_name)(params=enc_state[:,:self.num_param].unsqueeze(1).unsqueeze(1))
+            system = getattr(models, self.system_name)(params=enc_state[:,:self.num_param].unsqueeze(1).unsqueeze(1))
             # Initialize the physical informed method to compute loss
             method = utils.RK4(self.dt, model=system)
             # Compute differential and error
@@ -253,7 +257,9 @@ class ConvAE(pl.LightningModule):
             reg_loss += nn.MSELoss()(state+df, labels)*self.beta
             # Noise regularized loss
             self.log("train_reg_loss", reg_loss, prog_bar=True)
-        
+        if self.enc_space_reg == "TRUE":
+            reg_loss += nn.MSELoss()(enc_state[:,:self.num_param],self.true_system.params)*self.beta
+            self.log("train_reg_loss", reg_loss, prog_bar=True)
         
         # Logging to TensorBoard by default
         train_loss = rec_loss + reg_loss
@@ -270,17 +276,18 @@ class ConvAE(pl.LightningModule):
         ### Prepare network input and labels 
         state  = batch[:,:, :self.seq_len-self.feedforward_steps, :]
         labels = batch[:,:, self.feedforward_steps:, :]
+        
         # Set reg loss to zero
         reg_loss = 0
         # Forward step
         enc_state, rec_state = self.forward(batch_idx, state)
         # Compute reconstruction loss
-        rec_loss = nn.MSELoss()(rec_state, state)
+        rec_loss = nn.MSELoss()(rec_state, labels)
         
         # Compute regularization loss
-        if self.enc_space_reg is not None: # self.feedfrward_steps should be 1 here
+        if self.enc_space_reg == "PI": # self.feedfrward_steps should be 1 here
             # Initialize the system with parameters as the first entries of encoded batch
-            system = getattr(utils, self.system_name)(params=enc_state[:,:self.num_param].unsqueeze(1).unsqueeze(1))
+            system = getattr(models, self.system_name)(params=enc_state[:,:self.num_param].unsqueeze(1).unsqueeze(1))
             # Initialize the physical informed method to compute loss
             method = utils.RK4(self.dt, model=system)
             # Compute differential and error
@@ -289,12 +296,16 @@ class ConvAE(pl.LightningModule):
             reg_loss += nn.MSELoss()(state+df, labels)*self.beta
             # Noise regularized loss
             self.log("val_reg_loss", reg_loss, prog_bar=True)
+        if self.enc_space_reg == "TRUE":
+            reg_loss += nn.MSELoss()(enc_state[:,:self.num_param],self.true_system.params)*self.beta
+            self.log("val_reg_loss", reg_loss, prog_bar=True)
             
         # Compute reconstruction loss
         val_loss = rec_loss + reg_loss
         # Logging to TensorBoard by default
         self.log("val_loss", val_loss, prog_bar=True)
         self.log("epoch_num", self.current_epoch,prog_bar=True)
+        
         return val_loss
     
     def configure_optimizers(self):
