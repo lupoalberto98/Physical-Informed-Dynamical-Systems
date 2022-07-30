@@ -159,7 +159,7 @@ class ESN:
         rho_W = np.max(np.abs(np.linalg.eigvals(self.W)))
         if not self.silent:
             print(f"Spectral radius of W is {rho_W}")
-            print(f"Modulus of W is {np.sum(W**2)}")
+            print(f"Modulus of W is {np.sum(self.W**2)}")
         # INPUTS WEIGHTS - random input weights, each between -1 and 1:
         # W_in is NxK matrix where N is the number of reservoir nodes and K is the input nodes
         self.W_in = (

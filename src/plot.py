@@ -319,6 +319,7 @@ def plot_compute_pdf(points, epsilon=0.5, filename=None):
         divider = make_axes_locatable(ax[i])
         cax = divider.append_axes("right", size="5%", pad=0.05)
         fig.colorbar(h[3], cax=cax)
+       
         
     fig.tight_layout()
     # save

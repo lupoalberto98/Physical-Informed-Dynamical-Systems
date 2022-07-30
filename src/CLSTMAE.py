@@ -25,7 +25,9 @@ class ConvLSTMAE(pl.LightningModule):
     Autoencoder with a convolutional encoder and a LSTM decoder
     """
     def __init__(self,in_channels, out_channels, kernel_sizes, true_system,
-           padding=(0,0),  encoded_space_dim=1, lstm_hidden_units=100, bidirectional=False,layers_num=2, act=nn.ReLU, drop_p=0.1, seq_len=100, feedforward_steps=1, lr=0.001, dt=0.01, enc_space_reg="PI", beta=1.0,lr_scheduler_name="ExponentialLR", gamma=1.0):
+           padding=(0,0),  encoded_space_dim=1, lstm_hidden_units=100, bidirectional=False,layers_num=2,
+                 act=nn.ReLU, drop_p=0.1, seq_len=100, feedforward_steps=1, lr=0.001, dt=0.01, 
+                 enc_space_reg="PI", beta=1.0,lr_scheduler_name="ExponentialLR", gamma=1.0, reconstruct=True):
         
         super().__init__()
         
@@ -43,8 +45,8 @@ class ConvLSTMAE(pl.LightningModule):
         self.beta = beta # weight for regularization losses
         self.lr_scheduler_name = lr_scheduler_name
         self.gamma = gamma
+        self.reconstruct = reconstruct
        
-        
         # Encoder
         self.encoder = ConvEncoder(in_channels, out_channels, kernel_sizes, padding, encoded_space_dim, 
                  drop_p, act, seq_len, feedforward_steps)
@@ -98,7 +100,11 @@ class ConvLSTMAE(pl.LightningModule):
         # Forward step
         enc_state, rec_state = self.forward(state)
         # Compute reconstruction loss
-        rec_loss = nn.MSELoss()(rec_state, labels)
+        if self.reconstruct:
+            rec_loss = nn.MSELoss()(rec_state, state)
+        else:
+            rec_loss = nn.MSELoss()(rec_state, labels)
+        
         
         # Compute regularization loss
         if self.enc_space_reg == "PI": # self.feedfrward_steps should be 1 here
@@ -136,7 +142,11 @@ class ConvLSTMAE(pl.LightningModule):
         # Forward step
         enc_state, rec_state = self.forward(state)
         # Compute reconstruction loss
-        rec_loss = nn.MSELoss()(rec_state, labels)
+        if self.reconstruct:
+            rec_loss = nn.MSELoss()(rec_state, state)
+        else:
+            rec_loss = nn.MSELoss()(rec_state, labels)
+        
         
         # Compute regularization loss
         if self.enc_space_reg == "PI": # self.feedfrward_steps should be 1 here

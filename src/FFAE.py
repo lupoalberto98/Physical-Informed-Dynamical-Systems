@@ -16,8 +16,19 @@ from FFNet import FFNet
 import models
 
 class FFAE(pl.LightningModule):
-    def __init__(self, n_inputs, n_outputs, encoded_space_dim, hidden_layers, true_system, drop_p=0.3, 
-                 lr=0.001, dt=0.002, enc_space_reg="PI", weight_decay=0, beta=1):
+    def __init__(self,
+                 n_inputs,
+                 n_outputs,
+                 encoded_space_dim,
+                 hidden_layers, 
+                 true_system,
+                 drop_p = 0.3, 
+                 lr = 0.001,
+                 dt = 0.002,
+                 enc_space_reg = "PI",
+                 weight_decay = 0, 
+                 beta = 1, 
+                 reconstruct = True):
         """
         Initialize a typical feedforward network with different hidden layers
         The input is typically a mnist image, given as a torch tensor of size = (1,784),
@@ -33,6 +44,8 @@ class FFAE(pl.LightningModule):
             feedforward_steps : number of prediction steps
             enc_space_reg : regularzation of encoded space
             weight_decay : l2 regularization constant
+            beta : weight for regularization loss
+            reconstruct : if True reconstruct input, else predict next step
         """
         super().__init__()
         # Parameters
@@ -51,6 +64,7 @@ class FFAE(pl.LightningModule):
         self.enc_space_reg = enc_space_reg
         self.weight_decay = weight_decay
         self.beta = beta
+        self.reconstruct = reconstruct 
         
         # Network architecture
         self.encoder = FFNet(self.n_inputs, self.encoded_space_dim, self.hidden_layers, system=self.true_system, 
@@ -89,7 +103,10 @@ class FFAE(pl.LightningModule):
         # Forward step
         enc_state, rec_state = self.forward(batch_idx, state_flat)
         # Compute reconstruction loss
-        rec_loss = nn.MSELoss()(rec_state, labels_flat)
+        if self.reconstruct:
+            rec_loss = nn.MSELoss()(rec_state, state_flat)
+        else:
+            rec_loss = nn.MSELoss()(rec_state, labels_flat)
         
         # Compute regularization loss
         if self.enc_space_reg == "PI": # self.feedfrward_steps should be 1 here
@@ -129,7 +146,10 @@ class FFAE(pl.LightningModule):
         # Forward step
         enc_state, rec_state = self.forward(batch_idx, state_flat)
         # Compute reconstruction loss
-        rec_loss = nn.MSELoss()(rec_state, labels_flat)
+        if self.reconstruct:
+            rec_loss = nn.MSELoss()(rec_state, state_flat)
+        else:
+            rec_loss = nn.MSELoss()(rec_state, labels_flat)
         
         # Compute regularization loss
         if self.enc_space_reg == "PI": # self.feedfrward_steps should be 1 here

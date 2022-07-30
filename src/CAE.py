@@ -19,13 +19,30 @@ import models
 ### Convolutional Autoencoder
 class ConvEncoder(pl.LightningModule):
     
-    def __init__(self, in_channels, out_channels, kernel_sizes, padding=(0,0), encoded_space_dim=2, 
-                 drop_p=0.1, act=nn.ReLU, seq_len=100, feedforward_steps=1):
+    def __init__(self,
+                 in_channels, 
+                 out_channels,
+                 kernel_sizes,
+                 padding = (0,0),
+                 encoded_space_dim = 2, 
+                 drop_p = 0.1,
+                 act = nn.ReLU,
+                 seq_len = 100,
+                 feedforward_steps = 1):
         """
-        Convolutional Encoder layer, with 2 convolution layers
+        Convolutional Network with three convolutional layer and two dense
+        Args:
+            in_channels : inputs channels
+            out_channels : output channels
+            kernel_sizes : kernel sizes
+            padding : padding added to edges
+            encoded_space_dim : dimension of encoded space
+            drop_p : dropout probability
+            act : activation function
+            seq_len : length of input sequences 
+            feedforward_steps : prediction steps
         """
         super().__init__()
-      
         # Retrieve parameters
         self.in_channels = in_channels #tuple of int, input channels for convolutional layers
         self.out_channels = out_channels #tuple of int, of output channels 
@@ -113,7 +130,29 @@ class ConvEncoder(pl.LightningModule):
     
 class ConvDecoder(pl.LightningModule):
     
-    def __init__(self, in_channels, out_channels, kernel_sizes, padding=(0,0), encoded_space_dim=2, drop_p=0.1, act=nn.ReLU, seq_len=100, feedforward_steps=1):
+    def __init__(self, 
+                 in_channels, 
+                 out_channels,
+                 kernel_sizes, 
+                 padding = (0,0), 
+                 encoded_space_dim = 2, 
+                 drop_p = 0.1, 
+                 act = nn.ReLU, 
+                 seq_len = 100, 
+                 feedforward_steps = 1):
+        """
+        Convolutional Decoder with three convolutional layer and two dense
+        Args:
+            in_channels : inputs channels
+            out_channels : output channels
+            kernel_sizes : kernel sizes
+            padding : padding added to edges
+            encoded_space_dim : dimension of encoded space
+            drop_p : dropout probability
+            act : activation function
+            seq_len : length of input sequences 
+            feedforward_steps : prediction steps
+        """
         
         super().__init__()
         
@@ -193,8 +232,45 @@ class ConvDecoder(pl.LightningModule):
 ### Symmetric convolutional autoencoder
 class ConvAE(pl.LightningModule):
     
-    def __init__(self, in_channels, out_channels, kernel_sizes, true_system,
-           padding=(0,0),  encoded_space_dim=10, act=nn.ReLU, drop_p=0.1, seq_len=100, feedforward_steps=1, lr=0.001, dt=0.01, enc_space_reg=None, beta=1.0, lr_scheduler_name="ExponentialLR", gamma=1.0):
+    def __init__(self,
+                 in_channels, 
+                 out_channels, 
+                 kernel_sizes, 
+                 true_system,
+                 padding=(0,0), 
+                 encoded_space_dim=10, 
+                 act=nn.ReLU,
+                 drop_p=0.1,
+                 seq_len=100, 
+                 feedforward_steps=1,
+                 lr=0.001, 
+                 dt=0.01,
+                 enc_space_reg=None, 
+                 beta=1.0, 
+                 lr_scheduler_name="ExponentialLR", 
+                 gamma=1.0, 
+                 reconstruct=True):
+        """
+        Convolutional Symmetric Autoencoder
+        Args:
+            in_channels : inputs channels
+            out_channels : output channels
+            kernel_sizes : kernel sizes
+            true_system : ground true system hypothesis
+            padding : padding added to edges
+            encoded_space_dim : dimension of encoded space
+            drop_p : dropout probability
+            act : activation function
+            seq_len : length of input sequences 
+            feedforward_steps : prediction steps
+            lr : learning rate
+            dt : time discretization step
+            enc_space_reg : regularization used for encoded space (PI, TRUE)
+            beta : weight for regulariaztion loss
+            lr_scheduler_name : name of lr scheduler
+            gamma : decay of lr scheduler
+            reconstruct : of True reconstruct input, else predict next step
+        """
         
         super().__init__()
         self.encoder = ConvEncoder(in_channels, out_channels, kernel_sizes, padding, encoded_space_dim, 
@@ -214,6 +290,7 @@ class ConvAE(pl.LightningModule):
         self.beta = beta # Weights for regularization losses
         self.lr_scheduler_name = lr_scheduler_name
         self.gamma = gamma
+        self.reconstruct = reconstruct # if True reconstruct input, else predict next step
         
         ### Checkings 
         if self.enc_space_reg == None:
@@ -243,7 +320,10 @@ class ConvAE(pl.LightningModule):
         # Forward step
         enc_state, rec_state = self.forward(batch_idx, state)
         # Compute reconstruction loss
-        rec_loss = nn.MSELoss()(rec_state, labels)
+        if self.reconstruct:
+            rec_loss = nn.MSELoss()(rec_state, state)
+        else:
+            rec_loss = nn.MSELoss()(rec_state, labels)
         
         # Compute regularization loss
         if self.enc_space_reg == "PI": # self.feedfrward_steps should be 1 here
@@ -282,7 +362,11 @@ class ConvAE(pl.LightningModule):
         # Forward step
         enc_state, rec_state = self.forward(batch_idx, state)
         # Compute reconstruction loss
-        rec_loss = nn.MSELoss()(rec_state, labels)
+        if self.reconstruct:
+            rec_loss = nn.MSELoss()(rec_state, state)
+        else:
+            rec_loss = nn.MSELoss()(rec_state, labels)
+        
         
         # Compute regularization loss
         if self.enc_space_reg == "PI": # self.feedfrward_steps should be 1 here
