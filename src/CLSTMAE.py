@@ -24,10 +24,52 @@ class ConvLSTMAE(pl.LightningModule):
     """
     Autoencoder with a convolutional encoder and a LSTM decoder
     """
-    def __init__(self,in_channels, out_channels, kernel_sizes, true_system,
-           padding=(0,0),  encoded_space_dim=1, lstm_hidden_units=100, bidirectional=False,layers_num=2,
-                 act=nn.ReLU, drop_p=0.1, seq_len=100, feedforward_steps=1, lr=0.001, dt=0.01, 
-                 enc_space_reg="PI", beta=1.0,lr_scheduler_name="ExponentialLR", gamma=1.0, reconstruct=True):
+    def __init__(self,
+                 in_channels,
+                 out_channels,
+                 kernel_sizes,
+                 true_system,
+                 padding = (0,0),
+                 encoded_space_dim = 1,
+                 lstm_hidden_units = 100, 
+                 bidirectional = False,
+                 layers_num = 2,
+                 act = nn.ReLU, 
+                 drop_p = 0.1, 
+                 seq_len = 100,
+                 feedforward_steps = 1,
+                 lr = 0.001,
+                 dt = 0.01, 
+                 enc_space_reg = "PI",
+                 beta = 1.0,
+                 lr_scheduler_name = "ExponentialLR",
+                 gamma = 1.0,
+                 reconstruct = True):
+        
+        """
+        Convolutional Symmetric Autoencoder
+        Args:
+            in_channels : inputs channels
+            out_channels : output channels
+            kernel_sizes : kernel sizes
+            true_system : ground true system hypothesis
+            padding : padding added to edges
+            encoded_space_dim : dimension of encoded space
+            lstm_hidden_units : hidden units of LSTM, 
+            bidirectional : if LSTMs are bidirectional or not,
+            layers_num : number of LSTM layers,
+            drop_p : dropout probability
+            act : activation function
+            seq_len : length of input sequences 
+            feedforward_steps : prediction steps
+            lr : learning rate
+            dt : time discretization step
+            enc_space_reg : regularization used for encoded space (PI, TRUE)
+            beta : weight for regulariaztion loss
+            lr_scheduler_name : name of lr scheduler
+            gamma : decay of lr scheduler
+            reconstruct : of True reconstruct input, else predict next step
+        """
         
         super().__init__()
         

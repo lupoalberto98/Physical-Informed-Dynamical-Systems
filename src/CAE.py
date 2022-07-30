@@ -237,19 +237,19 @@ class ConvAE(pl.LightningModule):
                  out_channels, 
                  kernel_sizes, 
                  true_system,
-                 padding=(0,0), 
-                 encoded_space_dim=10, 
-                 act=nn.ReLU,
-                 drop_p=0.1,
-                 seq_len=100, 
-                 feedforward_steps=1,
-                 lr=0.001, 
-                 dt=0.01,
-                 enc_space_reg=None, 
-                 beta=1.0, 
-                 lr_scheduler_name="ExponentialLR", 
-                 gamma=1.0, 
-                 reconstruct=True):
+                 padding = (0,0), 
+                 encoded_space_dim = 10, 
+                 act = nn.ReLU,
+                 drop_p = 0.1,
+                 seq_len = 100, 
+                 feedforward_steps = 1,
+                 lr = 0.001, 
+                 dt = 0.01,
+                 enc_space_reg = None, 
+                 beta = 1.0, 
+                 lr_scheduler_name = "ExponentialLR", 
+                 gamma = 1.0, 
+                 reconstruct = True):
         """
         Convolutional Symmetric Autoencoder
         Args:
